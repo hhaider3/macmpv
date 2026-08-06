@@ -123,6 +123,28 @@ static inline int cinewave_mpv_next_event(mpv_handle *handle) {
     return event ? (int)event->event_id : (int)MPV_EVENT_NONE;
 }
 
+static inline const mpv_event *cinewave_mpv_wait_event(mpv_handle *handle, double timeout) {
+    return mpv_wait_event(handle, timeout);
+}
+
+static inline int cinewave_mpv_event_id(const mpv_event *event) {
+    return event ? (int)event->event_id : (int)MPV_EVENT_NONE;
+}
+
+static inline uint64_t cinewave_mpv_event_reply_userdata(const mpv_event *event) {
+    return event ? event->reply_userdata : 0;
+}
+
+static inline void *cinewave_mpv_event_data(const mpv_event *event) {
+    return event ? event->data : NULL;
+}
+
+static inline const char *cinewave_mpv_property_name(const mpv_event *event) {
+    if (!event || event->event_id != MPV_EVENT_PROPERTY_CHANGE) return NULL;
+    mpv_event_property *prop = (mpv_event_property *)event->data;
+    return prop ? prop->name : NULL;
+}
+
 static inline int cinewave_mpv_event_none(void) {
     return (int)MPV_EVENT_NONE;
 }
@@ -138,6 +160,34 @@ static inline int cinewave_mpv_event_end_file(void) {
 static inline int cinewave_mpv_event_shutdown(void) {
     return (int)MPV_EVENT_SHUTDOWN;
 }
+
+static inline int cinewave_mpv_event_property_change(void) {
+    return (int)MPV_EVENT_PROPERTY_CHANGE;
+}
+
+static inline int cinewave_mpv_observe_property(mpv_handle *handle, uint64_t userdata, const char *name, int format) {
+    return mpv_observe_property(handle, userdata, name, (mpv_format)format);
+}
+
+static inline int cinewave_mpv_unobserve_property(mpv_handle *handle, uint64_t userdata) {
+    return mpv_unobserve_property(handle, userdata);
+}
+
+static inline void cinewave_mpv_wakeup(mpv_handle *handle) {
+    mpv_wakeup(handle);
+}
+
+static inline void cinewave_mpv_render_set_update_callback(mpv_render_context *ctx, void (*cb)(void *), void *data) {
+    mpv_render_context_set_update_callback(ctx, cb, data);
+}
+
+static inline void cinewave_mpv_render_report_swap(mpv_render_context *ctx) {
+    mpv_render_context_report_swap(ctx);
+}
+
+static inline int cinewave_mpv_format_flag(void) { return MPV_FORMAT_FLAG; }
+static inline int cinewave_mpv_format_double(void) { return MPV_FORMAT_DOUBLE; }
+static inline int cinewave_mpv_format_string(void) { return MPV_FORMAT_STRING; }
 
 static inline void *cinewave_mpv_gl_proc_address(void *context, const char *name) {
     (void)context;

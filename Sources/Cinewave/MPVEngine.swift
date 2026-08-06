@@ -1,5 +1,6 @@
 import AppKit
 import CMPV
+import Foundation
 
 @MainActor
 final class MPVEngine {
@@ -9,7 +10,7 @@ final class MPVEngine {
         case shutdown
     }
 
-    struct Snapshot {
+    struct Snapshot: Equatable {
         var position: Double
         var duration: Double
         var paused: Bool
@@ -28,6 +29,37 @@ final class MPVEngine {
         handle != nil && renderContext != nil
     }
 
+    /// Called on MainActor when a lifecycle event arrives.
+    var onEvent: ((Event) -> Void)?
+    /// Called on MainActor only when one of the eight observed properties actually changes.
+    var onSnapshot: ((Snapshot) -> Void)?
+    /// Called on MainActor when mpv signals a new video frame is available via
+    /// `mpv_render_context_set_update_callback`.
+    var onRenderUpdate: (() -> Void)?
+
+    // MARK: - Event queue
+
+    private let eventQueue = DispatchQueue(label: "local.macmpv.eventQueue", qos: .userInitiated)
+    nonisolated(unsafe) private var shouldRunEventLoop = false
+    private let eventLoopLock = NSLock()
+    nonisolated(unsafe) private var bgSnapshot = Snapshot(position: 0, duration: 0, paused: true, muted: false, volume: 80, speed: 1, eofReached: false, title: nil)
+    nonisolated(unsafe) private var bgLastEmitted: Snapshot?
+
+    nonisolated private var shouldKeepRunning: Bool {
+        get { eventLoopLock.lock(); defer { eventLoopLock.unlock() }; return shouldRunEventLoop }
+        set { eventLoopLock.lock(); shouldRunEventLoop = newValue; eventLoopLock.unlock() }
+    }
+
+    // MARK: - Render callback
+
+    fileprivate static let renderUpdateCallback: @convention(c) (UnsafeMutableRawPointer?) -> Void = { data in
+        guard let data else { return }
+        let engine = Unmanaged<MPVEngine>.fromOpaque(data).takeUnretainedValue()
+        Task { @MainActor in
+            engine.onRenderUpdate?()
+        }
+    }
+
     func start() -> Bool {
         guard handle == nil else { return isReady }
         guard let newHandle = cinewave_mpv_create() else {
@@ -39,8 +71,6 @@ final class MPVEngine {
         var options: [(String, String)] = [
             ("config", "no"),
             ("vo", "libmpv"),
-            // Copy-back avoids invalid VideoToolbox textures after random seeks
-            // while retaining hardware decode for demanding media.
             ("hwdec", "auto-copy-safe"),
             ("hr-seek-framedrop", "yes"),
             ("demuxer-readahead-secs", "20"),
@@ -57,8 +87,6 @@ final class MPVEngine {
             ("slang", "auto")
         ]
 
-        // Opt-in diagnostics used by local playback smoke tests. Normal app
-        // launches expose no IPC socket and write no mpv log file.
         let environment = ProcessInfo.processInfo.environment
         if let ipcPath = environment["MACMPV_MPV_IPC"], !ipcPath.isEmpty {
             options.append(("input-ipc-server", ipcPath))
@@ -99,11 +127,29 @@ final class MPVEngine {
 
         renderContext = context
         lastError = nil
+
+        startObserving(handle: newHandle, renderContext: context)
         return true
     }
 
     func shutdown() {
+        let wasRunning = shouldKeepRunning
+        stopObserving()
+        // Synchronize with the dedicated event queue before destroying the handle.
+        // libmpv forbids concurrent calls during mpv_terminate_destroy; the loop may
+        // still be blocked in mpv_wait_event, so wake it and wait for the queue to drain.
+        if wasRunning {
+            // Enqueue a barrier after the running runEventLoop block. The barrier
+            // will not execute until runEventLoop has observed shouldKeepRunning == false,
+            // returned from mpv_wait_event (woken above), and exited.
+            let barrier = DispatchSemaphore(value: 0)
+            eventQueue.async { barrier.signal() }
+            // Timeout avoids hanging the main thread indefinitely if mpv misbehaves.
+            _ = barrier.wait(timeout: .now() + 2.0)
+        }
         if let renderContext {
+            // Clear update callback before freeing.
+            cinewave_mpv_render_set_update_callback(renderContext, nil, nil)
             cinewave_mpv_render_free(renderContext)
             self.renderContext = nil
         }
@@ -111,7 +157,146 @@ final class MPVEngine {
             cinewave_mpv_destroy(handle)
             self.handle = nil
         }
+        bgLastEmitted = nil
+        bgSnapshot = Snapshot(position: 0, duration: 0, paused: true, muted: false, volume: 80, speed: 1, eofReached: false, title: nil)
     }
+
+    // MARK: - Observe + event loop
+
+    private func startObserving(handle: OpaquePointer, renderContext: OpaquePointer) {
+        // Eight properties: position, duration, paused, muted, volume, speed, eofReached, media-title
+        let fmtDouble = cinewave_mpv_format_double()
+        let fmtFlag = cinewave_mpv_format_flag()
+        let fmtString = cinewave_mpv_format_string()
+        _ = cinewave_mpv_observe_property(handle, 1, "time-pos", fmtDouble)
+        _ = cinewave_mpv_observe_property(handle, 2, "duration", fmtDouble)
+        _ = cinewave_mpv_observe_property(handle, 3, "pause", fmtFlag)
+        _ = cinewave_mpv_observe_property(handle, 4, "mute", fmtFlag)
+        _ = cinewave_mpv_observe_property(handle, 5, "volume", fmtDouble)
+        _ = cinewave_mpv_observe_property(handle, 6, "speed", fmtDouble)
+        _ = cinewave_mpv_observe_property(handle, 7, "eof-reached", fmtFlag)
+        _ = cinewave_mpv_observe_property(handle, 8, "media-title", fmtString)
+
+        let unmanaged = Unmanaged.passUnretained(self).toOpaque()
+        cinewave_mpv_render_set_update_callback(renderContext, Self.renderUpdateCallback, unmanaged)
+
+        shouldKeepRunning = true
+
+        // Prime bgSnapshot on the event queue so all bgSnapshot / bgLastEmitted
+        // mutations are serialized on eventQueue (only background thread touches them after this point).
+        let handleBits = UInt(bitPattern: handle)
+        eventQueue.async { [weak self] in
+            guard let self else { return }
+            guard let handle = OpaquePointer(bitPattern: handleBits) else { return }
+            self.bgSnapshot = Snapshot(
+                position: cinewave_mpv_get_double(handle, "time-pos", 0),
+                duration: cinewave_mpv_get_double(handle, "duration", 0),
+                paused: cinewave_mpv_get_flag(handle, "pause", 1) != 0,
+                muted: cinewave_mpv_get_flag(handle, "mute", 0) != 0,
+                volume: cinewave_mpv_get_double(handle, "volume", 80),
+                speed: cinewave_mpv_get_double(handle, "speed", 1),
+                eofReached: cinewave_mpv_get_flag(handle, "eof-reached", 0) != 0,
+                title: self.stringPropertySync(handle, name: "media-title")
+            )
+            self.bgLastEmitted = nil
+            let initial = self.bgSnapshot
+            if self.bgLastEmitted != initial {
+                self.bgLastEmitted = initial
+                Task { @MainActor in self.onSnapshot?(initial) }
+            }
+            self.runEventLoop(handle: handle)
+        }
+    }
+
+    private func stopObserving() {
+        guard shouldKeepRunning else { return }
+        shouldKeepRunning = false
+        if let handle {
+            cinewave_mpv_wakeup(handle)
+        }
+        if let renderContext {
+            cinewave_mpv_render_set_update_callback(renderContext, nil, nil)
+        }
+    }
+
+    nonisolated private func runEventLoop(handle: OpaquePointer) {
+        while shouldKeepRunning {
+            guard let event = cinewave_mpv_wait_event(handle, -1) else { continue }
+            let eid = cinewave_mpv_event_id(event)
+            if eid == cinewave_mpv_event_none() { continue }
+
+            if eid == cinewave_mpv_event_property_change() {
+                let userdata = cinewave_mpv_event_reply_userdata(event)
+                handlePropertyChange(userdata: userdata, handle: handle, event: event)
+                continue
+            }
+
+            if eid == cinewave_mpv_event_file_loaded() {
+                Task { @MainActor [weak self] in self?.onEvent?(.fileLoaded) }
+            } else if eid == cinewave_mpv_event_end_file() {
+                Task { @MainActor [weak self] in self?.onEvent?(.endFile) }
+            } else if eid == cinewave_mpv_event_shutdown() {
+                Task { @MainActor [weak self] in self?.onEvent?(.shutdown) }
+                shouldKeepRunning = false
+                break
+            }
+        }
+    }
+
+    nonisolated private func handlePropertyChange(userdata: UInt64, handle: OpaquePointer, event: UnsafePointer<mpv_event>) {
+        var changed = false
+        switch userdata {
+        case 1:
+            let v = cinewave_mpv_get_double(handle, "time-pos", bgSnapshot.position)
+            if v != bgSnapshot.position { bgSnapshot.position = v; changed = true }
+        case 2:
+            let v = cinewave_mpv_get_double(handle, "duration", bgSnapshot.duration)
+            if v != bgSnapshot.duration { bgSnapshot.duration = v; changed = true }
+        case 3:
+            let v = cinewave_mpv_get_flag(handle, "pause", bgSnapshot.paused ? 1 : 0) != 0
+            if v != bgSnapshot.paused { bgSnapshot.paused = v; changed = true }
+        case 4:
+            let v = cinewave_mpv_get_flag(handle, "mute", bgSnapshot.muted ? 1 : 0) != 0
+            if v != bgSnapshot.muted { bgSnapshot.muted = v; changed = true }
+        case 5:
+            let v = cinewave_mpv_get_double(handle, "volume", bgSnapshot.volume)
+            if v != bgSnapshot.volume { bgSnapshot.volume = v; changed = true }
+        case 6:
+            let v = cinewave_mpv_get_double(handle, "speed", bgSnapshot.speed)
+            if v != bgSnapshot.speed { bgSnapshot.speed = v; changed = true }
+        case 7:
+            let v = cinewave_mpv_get_flag(handle, "eof-reached", bgSnapshot.eofReached ? 1 : 0) != 0
+            if v != bgSnapshot.eofReached { bgSnapshot.eofReached = v; changed = true }
+        case 8:
+            let v = stringPropertySync(handle, name: "media-title")
+            if v != bgSnapshot.title { bgSnapshot.title = v; changed = true }
+        default:
+            // Unknown userdata — inspect the current event without consuming the next one.
+            if let cname = cinewave_mpv_property_name(event) {
+                _ = cname
+            }
+            return
+        }
+
+        if changed {
+            // Publish only if snapshot actually differs from last emitted.
+            if bgLastEmitted != bgSnapshot {
+                let snap = bgSnapshot
+                bgLastEmitted = snap
+                Task { @MainActor [weak self] in
+                    self?.onSnapshot?(snap)
+                }
+            }
+        }
+    }
+
+    nonisolated private func stringPropertySync(_ handle: OpaquePointer, name: String) -> String? {
+        guard let value = cinewave_mpv_get_string(handle, name) else { return nil }
+        defer { cinewave_mpv_free(value) }
+        return String(cString: value)
+    }
+
+    // MARK: - Playback commands (MainActor)
 
     func load(_ url: URL) -> Bool {
         guard let handle else { return false }
@@ -182,6 +367,9 @@ final class MPVEngine {
         command("frame-step")
     }
 
+    /// Synchronous snapshot for callers that need an immediate read (e.g. tests).
+    /// The event-driven path uses `onSnapshot` instead — this reads directly from mpv
+    /// and does not touch the background queue's cached snapshot.
     func snapshot() -> Snapshot? {
         guard let handle else { return nil }
         return Snapshot(
@@ -196,6 +384,8 @@ final class MPVEngine {
         )
     }
 
+    /// Kept for compatibility; with the event-queue architecture new events arrive
+    /// via `onEvent`. This drains any pending non-blocking events as a fallback.
     func drainEvents() -> [Event] {
         guard let handle else { return [] }
         var events: [Event] = []
@@ -222,6 +412,11 @@ final class MPVEngine {
     func render(framebuffer: Int32, width: Int32, height: Int32) {
         guard let renderContext, width > 0, height > 0 else { return }
         cinewave_mpv_render_frame(renderContext, framebuffer, width, height)
+    }
+
+    func reportSwap() {
+        guard let renderContext else { return }
+        cinewave_mpv_render_report_swap(renderContext)
     }
 
     private func command(_ first: String, _ second: String? = nil) {

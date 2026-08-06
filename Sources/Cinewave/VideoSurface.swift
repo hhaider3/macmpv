@@ -1,11 +1,19 @@
 import AppKit
 import OpenGL.GL3
+import QuartzCore
 import SwiftUI
 
 final class MPVGLView: NSOpenGLView {
     weak var engine: MPVEngine?
-    private var renderTimer: Timer?
     private weak var observedWindow: NSWindow?
+    private var consecutiveNoFrameCount = 0
+
+    // macOS 14+ displayLink – automatically pauses when the view is hidden or off-screen.
+    @available(macOS 14.0, *)
+    private var displayLink: CADisplayLink?
+
+    // Fallback for theoretical pre-14 target (kept for completeness, never used on the current 26.0 target).
+    private var fallbackTimer: Timer?
 
     init?(configuredForMPV: Bool) {
         let attributes: [NSOpenGLPixelFormatAttribute] = [
@@ -33,22 +41,24 @@ final class MPVGLView: NSOpenGLView {
         openGLContext?.makeCurrentContext()
         var swapInterval: GLint = 1
         openGLContext?.setValues(&swapInterval, for: .swapInterval)
-        startRenderTimer()
+        setupDisplayLink()
     }
 
     func startPlaybackEngine() -> Bool {
         openGLContext?.makeCurrentContext()
         let started = engine?.start() ?? false
         if started {
-            startRenderTimer()
+            setupDisplayLink()
+            bindRenderCallback()
             needsDisplay = true
         }
         return started
     }
 
     func stopPlaybackEngine() {
-        renderTimer?.invalidate()
-        renderTimer = nil
+        teardownDisplayLink()
+        // Clear render callback before destroying the context.
+        engine?.onRenderUpdate = nil
         openGLContext?.makeCurrentContext()
         engine?.shutdown()
         NSOpenGLContext.clearCurrentContext()
@@ -72,6 +82,7 @@ final class MPVGLView: NSOpenGLView {
             height: Int32(backingBounds.height.rounded())
         )
         openGLContext?.flushBuffer()
+        engine.reportSwap()
     }
 
     override func reshape() {
@@ -100,10 +111,13 @@ final class MPVGLView: NSOpenGLView {
             }
         }
         if window == nil {
-            renderTimer?.invalidate()
-            renderTimer = nil
+            teardownDisplayLink()
         } else {
-            startRenderTimer()
+            setupDisplayLink()
+            // Re-bind: the engine may have been started before the view was in a window.
+            if engine?.isReady == true {
+                bindRenderCallback()
+            }
         }
     }
 
@@ -111,14 +125,77 @@ final class MPVGLView: NSOpenGLView {
         stopPlaybackEngine()
     }
 
-    private func startRenderTimer() {
-        guard renderTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(checkForFrame), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
-        renderTimer = timer
+    // MARK: - DisplayLink
+
+    private func setupDisplayLink() {
+        if #available(macOS 14.0, *) {
+            guard displayLink == nil else { return }
+            // `NSView.displayLink(target:selector:)` is the macOS 14+ replacement for CVDisplayLink.
+            // The returned CADisplayLink is view-owned and automatically stops callbacks when
+            // the view is hidden, off-screen, or the window is minimized — eliminating the
+            // 60 Hz polling that previously ran while paused/minimized.
+            let dl = displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+            dl.add(to: .main, forMode: .common)
+            dl.isPaused = true
+            displayLink = dl
+        } else {
+            startFallbackTimer()
+        }
     }
 
-    @objc private func checkForFrame() {
+    private func teardownDisplayLink() {
+        if #available(macOS 14.0, *) {
+            displayLink?.invalidate()
+            displayLink = nil
+        }
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+        consecutiveNoFrameCount = 0
+    }
+
+    private func bindRenderCallback() {
+        engine?.onRenderUpdate = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if #available(macOS 14.0, *) {
+                    self.displayLink?.isPaused = false
+                    self.consecutiveNoFrameCount = 0
+                }
+                self.needsDisplay = true
+            }
+        }
+    }
+
+    @available(macOS 14.0, *)
+    @objc private func handleDisplayLink(_ sender: CADisplayLink) {
+        guard let engine else {
+            sender.isPaused = true
+            return
+        }
+        // `mpv_render_context_update` must be called on the render thread to learn
+        // whether a new frame is available. We do this at display cadence, not via a fixed timer.
+        if engine.rendererNeedsFrame() {
+            needsDisplay = true
+            consecutiveNoFrameCount = 0
+        } else {
+            consecutiveNoFrameCount += 1
+            // After ~0.5 s of idle frames, pause the link until mpv signals new content.
+            if consecutiveNoFrameCount > 30 {
+                sender.isPaused = true
+            }
+        }
+    }
+
+    // MARK: - Fallback (pre-14, kept only for completeness)
+
+    private func startFallbackTimer() {
+        guard fallbackTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(checkForFrameFallback), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        fallbackTimer = timer
+    }
+
+    @objc private func checkForFrameFallback() {
         if engine?.rendererNeedsFrame() == true {
             needsDisplay = true
         }

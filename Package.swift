@@ -25,7 +25,8 @@ let package = Package(
             path: "Sources/Cinewave",
             linkerSettings: [
                 .linkedFramework("AppKit"),
-                .linkedFramework("OpenGL")
+                .linkedFramework("OpenGL"),
+                .linkedFramework("QuartzCore")
             ]
         )
     ]

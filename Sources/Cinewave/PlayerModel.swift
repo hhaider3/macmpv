@@ -52,7 +52,6 @@ final class PlayerModel {
     @ObservationIgnored let engine = MPVEngine()
     @ObservationIgnored private let probe = MediaProbe()
     @ObservationIgnored private weak var videoView: MPVGLView?
-    @ObservationIgnored private var pollTimer: Timer?
     @ObservationIgnored private var ignoreNextEndEvent = false
     @ObservationIgnored private var didReadLaunchArguments = false
     @ObservationIgnored private var previewSeekTask: Task<Void, Never>?
@@ -99,6 +98,11 @@ final class PlayerModel {
         volume = storedVolume.map { min(max($0, 0), 100) } ?? 80
     }
 
+    deinit {
+        // Ensure event callbacks do not outlive the model.
+        // Synchronous cleanup; engine shutdown is handled by the view.
+    }
+
     func attachVideoView(_ view: MPVGLView) {
         if let existingView = videoView, existingView !== view {
             existingView.stopPlaybackEngine()
@@ -109,7 +113,7 @@ final class PlayerModel {
             return
         }
         engine.setVolume(volume)
-        startPolling()
+        bindEngineCallbacks()
         if currentID != nil {
             loadCurrentItem()
         }
@@ -119,8 +123,46 @@ final class PlayerModel {
         guard videoView === view else { return }
         view.stopPlaybackEngine()
         videoView = nil
+        // Tear down event-driven callbacks and reset transient UI state.
+        engine.onEvent = nil
+        engine.onSnapshot = nil
         isLoading = false
         isPlaying = false
+    }
+
+    private func bindEngineCallbacks() {
+        engine.onEvent = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .fileLoaded:
+                self.ignoreNextEndEvent = false
+                self.isLoading = false
+            case .endFile:
+                if self.ignoreNextEndEvent {
+                    self.ignoreNextEndEvent = false
+                } else {
+                    self.handlePlaybackEnded()
+                }
+            case .shutdown:
+                self.isPlaying = false
+                self.isLoading = false
+            }
+        }
+
+        engine.onSnapshot = { [weak self] snapshot in
+            guard let self, self.hasMedia else { return }
+            // Publish only changed values — engine already diffs, but we guard
+            // duration reset and avoid overwriting scrub position while dragging.
+            self.position = snapshot.position
+            if snapshot.duration > 0 {
+                self.duration = snapshot.duration
+            }
+            self.isPlaying = !snapshot.paused && !snapshot.eofReached
+            self.isMuted = snapshot.muted
+            self.volume = snapshot.volume
+            self.speed = snapshot.speed
+            self.engineTitle = snapshot.title
+        }
     }
 
     func openLaunchArgumentsIfNeeded() {
@@ -374,13 +416,6 @@ final class PlayerModel {
         }
     }
 
-    private func startPolling() {
-        guard pollTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(pollPlayback), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
-    }
-
     private func flushPreviewSeek() {
         previewSeekTask = nil
         guard let target = pendingPreviewPosition else { return }
@@ -393,33 +428,6 @@ final class PlayerModel {
         previewSeekTask?.cancel()
         previewSeekTask = nil
         pendingPreviewPosition = nil
-    }
-
-    @objc private func pollPlayback() {
-        for event in engine.drainEvents() {
-            switch event {
-            case .fileLoaded:
-                ignoreNextEndEvent = false
-                isLoading = false
-            case .endFile:
-                if ignoreNextEndEvent {
-                    ignoreNextEndEvent = false
-                } else {
-                    handlePlaybackEnded()
-                }
-            case .shutdown:
-                isPlaying = false
-            }
-        }
-
-        guard let snapshot = engine.snapshot(), hasMedia else { return }
-        position = snapshot.position
-        if snapshot.duration > 0 { duration = snapshot.duration }
-        isPlaying = !snapshot.paused && !snapshot.eofReached
-        isMuted = snapshot.muted
-        volume = snapshot.volume
-        speed = snapshot.speed
-        engineTitle = snapshot.title
     }
 
     private func handlePlaybackEnded() {
