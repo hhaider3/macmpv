@@ -154,15 +154,12 @@ struct PlayerControls: View {
         .padding(.horizontal, 18)
         .padding(.top, 13)
         .padding(.bottom, 16)
-        .background(
-            Color(red: 0.075, green: 0.082, blue: 0.115).opacity(0.96),
+        .glassEffect(
+            .clear
+                .interactive(),
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.1), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+        .glassEffectTransition(.materialize)
     }
 
     private var currentTime: Double {

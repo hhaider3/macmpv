@@ -69,7 +69,7 @@ struct ContentView: View {
                 }
 
                 LinearGradient(
-                    colors: [.clear, .black.opacity(player.hasMedia ? 0.1 : 0.02), .black.opacity(0.58)],
+                    colors: [.clear, .clear, .black.opacity(player.hasMedia ? 0.16 : 0.02)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -120,13 +120,6 @@ struct ContentView: View {
 
                 if isFullscreenControlZoneHovered {
                     ZStack(alignment: .bottom) {
-                        LinearGradient(
-                            colors: [.clear, .black.opacity(0.72)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .allowsHitTesting(false)
-
                         PlayerControls(player: player)
                             .padding(.horizontal, 28)
                             .padding(.bottom, 22)
