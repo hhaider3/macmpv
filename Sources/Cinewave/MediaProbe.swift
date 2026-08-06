@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 actor MediaProbe {
@@ -40,12 +41,14 @@ actor MediaProbe {
         }
     }
 
-    func inspect(_ url: URL) -> MediaMetadata? {
+    // MARK: - Public API
+
+    func inspect(_ url: URL) async -> MediaMetadata? {
         guard let ffprobe = Self.ffprobeExecutable else { return nil }
 
         let process = Process()
-        let output = Pipe()
-        let errors = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
         process.executableURL = ffprobe
         process.arguments = [
             "-v", "error",
@@ -54,30 +57,168 @@ actor MediaProbe {
             "-of", "json",
             url.isFileURL ? url.path : url.absoluteString
         ]
-        process.standardOutput = output
-        process.standardError = errors
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+        // Ensure GUI apps don't inherit a stripped environment.
+        process.qualityOfService = .userInitiated
 
         do {
             try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let probe = try JSONDecoder().decode(ProbeOutput.self, from: data)
+        } catch {
+            return nil
+        }
+
+        // Race the probe against a timeout, draining both pipes concurrently.
+        // On timeout we terminate gracefully, then force-kill after a short grace.
+        return await withTaskGroup(of: MediaMetadata?.self) { group in
+            group.addTask {
+                await self.collectResult(process: process, outputPipe: outputPipe, errorPipe: errorPipe)
+            }
+            group.addTask {
+                // 8s for local files, enough for remote / HLS without hanging indefinitely.
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                if process.isRunning {
+                    process.terminate() // SIGTERM
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s grace
+                    if process.isRunning {
+                        // SIGKILL as last resort; Process has no direct kill, use Darwin.
+                        Darwin.kill(process.processIdentifier, SIGKILL)
+                    }
+                }
+                return nil
+            }
+
+            // First completed wins; cancel the other branch.
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
+    // MARK: - Executable search
+
+    // Bundled > user-configurable > PATH > hardcoded fallbacks.
+    // Finder-launched apps get a minimal PATH, so hardcoded fallbacks are always checked.
+    private static var ffprobeExecutable: URL? {
+        let fm = FileManager.default
+
+        // 1. Bundled with app (e.g. Contents/MacOS/ffprobe or Resources/ffprobe)
+        if let bundled = Bundle.main.url(forAuxiliaryExecutable: "ffprobe"),
+           fm.isExecutableFile(atPath: bundled.path) {
+            return bundled
+        }
+        if let resDir = Bundle.main.resourceURL?.appendingPathComponent("ffprobe"),
+           fm.isExecutableFile(atPath: resDir.path) {
+            return resDir
+        }
+        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("ffprobe"),
+           fm.isExecutableFile(atPath: execDir.path) {
+            return execDir
+        }
+
+        // 2. User-configurable (UserDefaults or environment)
+        // Environment checked first so launchctl / shell overrides win.
+        let customCandidates: [String?] = [
+            ProcessInfo.processInfo.environment["MACMPV_FFPROBE"],
+            ProcessInfo.processInfo.environment["FFPROBE_PATH"],
+            UserDefaults.standard.string(forKey: "ffprobe.path"),
+            UserDefaults.standard.string(forKey: "MACMPV_FFPROBE"),
+        ]
+        for raw in customCandidates.compactMap({ $0 }).map({ ($0 as NSString).expandingTildeInPath }) {
+            if fm.isExecutableFile(atPath: raw) {
+                return URL(fileURLWithPath: raw)
+            }
+        }
+
+        // 3. PATH — split on `:` and test each directory. Finder may give minimal PATH,
+        // so we still fall through to hardcoded list below.
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":").map(String.init) where !dir.isEmpty {
+                let candidate = (dir as NSString).appendingPathComponent("ffprobe")
+                if fm.isExecutableFile(atPath: candidate) {
+                    return URL(fileURLWithPath: candidate)
+                }
+            }
+        }
+
+        // 4. Hardcoded fallbacks: Homebrew (arm + intel), MacPorts, Nix, system
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let hardcoded = [
+            "/opt/homebrew/bin/ffprobe",                // Homebrew arm
+            "/usr/local/bin/ffprobe",                   // Homebrew Intel / manual
+            "/opt/local/bin/ffprobe",                   // MacPorts
+            "/usr/bin/ffprobe",                         // system
+            "/run/current-system/sw/bin/ffprobe",       // NixOS
+            "/nix/var/nix/profiles/default/bin/ffprobe",// Nix
+            "\(home)/.nix-profile/bin/ffprobe",         // Nix single-user
+            "/opt/nix/bin/ffprobe",
+        ]
+        for candidate in hardcoded where fm.isExecutableFile(atPath: candidate) {
+            return URL(fileURLWithPath: candidate)
+        }
+
+        return nil
+    }
+
+    // MARK: - Collection helpers
+
+    private func collectResult(process: Process, outputPipe: Pipe, errorPipe: Pipe) async -> MediaMetadata? {
+        // Drain stdout and stderr concurrently so neither pipe fills and deadlocks.
+        // readToEnd() is async and suspends the actor without blocking the cooperative thread.
+        async let stdoutDataTask: Data = {
+            do {
+                return try await outputPipe.fileHandleForReading.readToEnd() ?? Data()
+            } catch {
+                return Data()
+            }
+        }()
+
+        async let stderrDrainTask: Data = {
+            do {
+                return try await errorPipe.fileHandleForReading.readToEnd() ?? Data()
+            } catch {
+                return Data()
+            }
+        }()
+
+        async let exitStatusTask: Int32 = {
+            await self.waitForExit(process)
+        }()
+
+        let (stdoutData, _, exitStatus) = await (stdoutDataTask, stderrDrainTask, exitStatusTask)
+
+        guard exitStatus == 0 else { return nil }
+        guard !stdoutData.isEmpty else { return nil }
+        do {
+            let probe = try JSONDecoder().decode(ProbeOutput.self, from: stdoutData)
             return Self.metadata(from: probe)
         } catch {
             return nil
         }
     }
 
-    private static var ffprobeExecutable: URL? {
-        let candidates = [
-            "/opt/homebrew/bin/ffprobe",
-            "/usr/local/bin/ffprobe",
-            "/usr/bin/ffprobe"
-        ]
-        return candidates
-            .first(where: FileManager.default.isExecutableFile(atPath:))
-            .map(URL.init(fileURLWithPath:))
+    private func waitForExit(_ process: Process) async -> Int32 {
+        // If already exited, return immediately without installing a handler.
+        if !process.isRunning {
+            return process.terminationStatus
+        }
+        return await withCheckedContinuation { continuation in
+            // Capture handler race: process could exit between the isRunning check and assignment.
+            // Set handler first, then re-check isRunning; if it exited synchronously, resume immediately
+            // and clear handler to avoid double-resume.
+            let previousHandler = process.terminationHandler
+            process.terminationHandler = { p in
+                // Restore previous handler to avoid leaking
+                p.terminationHandler = previousHandler
+                continuation.resume(returning: p.terminationStatus)
+            }
+            if !process.isRunning {
+                // Exited before handler was set; resume with current status
+                let status = process.terminationStatus
+                process.terminationHandler = previousHandler
+                continuation.resume(returning: status)
+            }
+        }
     }
 
     private static func metadata(from output: ProbeOutput) -> MediaMetadata {
