@@ -108,10 +108,30 @@ struct ContentView: View {
         .onTapGesture(count: 2) {
             player.toggleFullscreen()
         }
+        .onTapGesture(count: 1) {
+            guard player.hasMedia else { return }
+            player.togglePlayback()
+        }
     }
 
     private var fullscreenControls: some View {
         VStack(spacing: 0) {
+            if !player.isPlaying, player.hasMedia {
+                PlayerHeader(
+                    player: player,
+                    openURL: { isShowingURLSheet = true }
+                )
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.55), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .top)
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             Spacer()
 
             ZStack(alignment: .bottom) {
@@ -136,6 +156,7 @@ struct ContentView: View {
                 }
             }
         }
+        .animation(.easeOut(duration: 0.25), value: player.isPlaying)
     }
 }
 
