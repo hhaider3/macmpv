@@ -17,15 +17,21 @@ struct PlayerControls: View {
                 Slider(
                     value: Binding(
                         get: { isScrubbing ? scrubPosition : player.position },
-                        set: { scrubPosition = $0 }
+                        set: { newPosition in
+                            scrubPosition = newPosition
+                            if isScrubbing {
+                                player.previewSeek(to: newPosition)
+                            }
+                        }
                     ),
                     in: 0...max(player.duration, 1),
                     onEditingChanged: { editing in
                         if editing {
                             scrubPosition = player.position
                             isScrubbing = true
+                            player.beginScrubbing()
                         } else {
-                            player.seek(to: scrubPosition)
+                            player.endScrubbing(at: scrubPosition)
                             isScrubbing = false
                         }
                     }
@@ -45,9 +51,7 @@ struct PlayerControls: View {
                         symbol: player.isSidebarVisible ? "sidebar.left" : "sidebar.right",
                         help: player.isSidebarVisible ? "Hide playlist" : "Show playlist"
                     ) {
-                        withAnimation(.snappy(duration: 0.24)) {
-                            player.isSidebarVisible.toggle()
-                        }
+                        player.isSidebarVisible.toggle()
                     }
 
                     ControlButton(symbol: "captions.bubble", help: "Cycle subtitles") {
@@ -82,7 +86,7 @@ struct PlayerControls: View {
                             .foregroundStyle(Color(red: 0.06, green: 0.07, blue: 0.12))
                             .frame(width: 48, height: 48)
                             .background(.white, in: Circle())
-                            .shadow(color: .black.opacity(0.28), radius: 14, y: 5)
+                            .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
                     }
                     .buttonStyle(.plain)
                     .help(player.hasMedia ? (player.isPlaying ? "Pause" : "Play") : "Open media")
@@ -150,12 +154,15 @@ struct PlayerControls: View {
         .padding(.horizontal, 18)
         .padding(.top, 13)
         .padding(.bottom, 16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(
+            Color(red: 0.075, green: 0.082, blue: 0.115).opacity(0.96),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.1), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.32), radius: 26, y: 10)
+        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
     }
 
     private var currentTime: Double {

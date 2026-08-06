@@ -55,6 +55,12 @@ final class PlayerModel {
     @ObservationIgnored private var pollTimer: Timer?
     @ObservationIgnored private var ignoreNextEndEvent = false
     @ObservationIgnored private var didReadLaunchArguments = false
+    @ObservationIgnored private var previewSeekTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingPreviewPosition: Double?
+    @ObservationIgnored private var lastPreviewSeekUptime: TimeInterval = -.infinity
+    @ObservationIgnored private var wasPlayingBeforeScrub = false
+
+    private let previewSeekInterval: TimeInterval = 0.18
 
     var currentItem: MediaItem? {
         guard let currentID else { return nil }
@@ -215,8 +221,49 @@ final class PlayerModel {
 
     func seek(to seconds: Double) {
         guard hasMedia else { return }
+        cancelPendingPreviewSeek()
         position = min(max(seconds, 0), max(duration, 0))
         engine.seek(absolute: position)
+    }
+
+    func beginScrubbing() {
+        guard hasMedia else { return }
+        cancelPendingPreviewSeek()
+        wasPlayingBeforeScrub = isPlaying
+        if wasPlayingBeforeScrub {
+            engine.setPaused(true)
+            isPlaying = false
+        }
+    }
+
+    func previewSeek(to seconds: Double) {
+        guard hasMedia else { return }
+        let target = min(max(seconds, 0), max(duration, 0))
+        position = target
+        pendingPreviewPosition = target
+
+        guard previewSeekTask == nil else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastPreviewSeekUptime
+        let delay = max(0, previewSeekInterval - elapsed)
+        if delay == 0 {
+            flushPreviewSeek()
+            return
+        }
+
+        previewSeekTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(delay * 1_000)))
+            guard !Task.isCancelled else { return }
+            self?.flushPreviewSeek()
+        }
+    }
+
+    func endScrubbing(at seconds: Double) {
+        seek(to: seconds)
+        if wasPlayingBeforeScrub {
+            engine.setPaused(false)
+            isPlaying = true
+        }
+        wasPlayingBeforeScrub = false
     }
 
     func goNext() {
@@ -332,6 +379,20 @@ final class PlayerModel {
         let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(pollPlayback), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
+    }
+
+    private func flushPreviewSeek() {
+        previewSeekTask = nil
+        guard let target = pendingPreviewPosition else { return }
+        pendingPreviewPosition = nil
+        lastPreviewSeekUptime = ProcessInfo.processInfo.systemUptime
+        engine.previewSeek(absolute: target)
+    }
+
+    private func cancelPendingPreviewSeek() {
+        previewSeekTask?.cancel()
+        previewSeekTask = nil
+        pendingPreviewPosition = nil
     }
 
     @objc private func pollPlayback() {

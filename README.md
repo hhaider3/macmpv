@@ -44,6 +44,5 @@ open dist/macmpv.app
 The local app bundle links to the Homebrew `libmpv` installation. Keep mpv and
 FFmpeg installed while using macmpv.
 
-macmpv uses mpv's copy-back hardware decoding mode for stable seeking. AVI
-files use software decoding because VideoToolbox can produce invalid color
-surfaces after random seeks in H.264-in-AVI media.
+macmpv uses mpv's copy-back hardware decoding mode and coalesced fast-seek
+previews while scrubbing, followed by an exact seek when the slider is released.

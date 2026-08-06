@@ -4,12 +4,13 @@ struct ContentView: View {
     @Bindable var player: PlayerModel
     @State private var isDropTarget = false
     @State private var isShowingURLSheet = false
+    @State private var isFullscreen = false
+    @State private var isFullscreenControlZoneHovered = false
 
     var body: some View {
         HStack(spacing: 0) {
-            if player.isSidebarVisible {
+            if player.isSidebarVisible && !isFullscreen {
                 QueueSidebar(player: player)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
             playerArea
@@ -33,11 +34,19 @@ struct ContentView: View {
             }
         }
         .overlay {
-            if isDropTarget {
+            if isDropTarget && !isFullscreen {
                 DropOverlay()
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            isFullscreen = true
+            isFullscreenControlZoneHovered = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            isFullscreen = false
+            isFullscreenControlZoneHovered = false
         }
     }
 
@@ -45,52 +54,94 @@ struct ContentView: View {
         ZStack {
             VideoSurface(player: player)
                 .ignoresSafeArea()
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
 
-            if !player.hasMedia {
-                WelcomeView(
-                    openFiles: player.openPanel,
-                    openURL: { isShowingURLSheet = true }
+            if isFullscreen {
+                fullscreenControls
+            } else {
+                if !player.hasMedia {
+                    WelcomeView(
+                        openFiles: player.openPanel,
+                        openURL: { isShowingURLSheet = true }
+                    )
+                }
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(player.hasMedia ? 0.1 : 0.02), .black.opacity(0.58)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-            }
+                .allowsHitTesting(false)
 
-            LinearGradient(
-                colors: [.clear, .black.opacity(player.hasMedia ? 0.1 : 0.02), .black.opacity(0.58)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .allowsHitTesting(false)
+                VStack(spacing: 0) {
+                    PlayerHeader(
+                        player: player,
+                        openURL: { isShowingURLSheet = true }
+                    )
 
-            VStack(spacing: 0) {
-                PlayerHeader(
-                    player: player,
-                    openURL: { isShowingURLSheet = true }
-                )
-
-                Spacer()
-
-                PlayerControls(player: player)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 18)
-            }
-
-            if player.isLoading {
-                ProgressView()
-                    .controlSize(.large)
-                    .padding(18)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-
-            if let error = player.errorMessage {
-                VStack {
-                    ErrorToast(message: error, dismiss: player.dismissError)
-                        .padding(.top, 54)
                     Spacer()
+
+                    PlayerControls(player: player)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 18)
+                }
+
+                if player.isLoading {
+                    ProgressView()
+                        .controlSize(.large)
+                        .padding(18)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+
+                if let error = player.errorMessage {
+                    VStack {
+                        ErrorToast(message: error, dismiss: player.dismissError)
+                            .padding(.top, 54)
+                        Spacer()
+                    }
                 }
             }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             player.toggleFullscreen()
+        }
+    }
+
+    private var fullscreenControls: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            ZStack(alignment: .bottom) {
+                Color.clear
+                    .contentShape(Rectangle())
+
+                if isFullscreenControlZoneHovered {
+                    ZStack(alignment: .bottom) {
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.72)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .allowsHitTesting(false)
+
+                        PlayerControls(player: player)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 22)
+                    }
+                    .compositingGroup()
+                    .transition(.opacity)
+                }
+            }
+            .frame(height: 160)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    isFullscreenControlZoneHovered = hovering
+                }
+            }
         }
     }
 }
@@ -103,9 +154,7 @@ private struct PlayerHeader: View {
         HStack(spacing: 10) {
             if !player.isSidebarVisible {
                 Button {
-                    withAnimation(.snappy(duration: 0.24)) {
-                        player.isSidebarVisible = true
-                    }
+                    player.isSidebarVisible = true
                 } label: {
                     Image(systemName: "sidebar.left")
                         .frame(width: 28, height: 28)

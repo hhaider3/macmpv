@@ -46,7 +46,7 @@ struct QueueSidebar: View {
             }
         }
         .frame(width: 260)
-        .background(.regularMaterial)
+        .background(Color(red: 0.055, green: 0.061, blue: 0.086))
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(.white.opacity(0.08))

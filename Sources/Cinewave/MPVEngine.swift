@@ -42,6 +42,9 @@ final class MPVEngine {
             // Copy-back avoids invalid VideoToolbox textures after random seeks
             // while retaining hardware decode for demanding media.
             ("hwdec", "auto-copy-safe"),
+            ("hr-seek-framedrop", "yes"),
+            ("demuxer-readahead-secs", "20"),
+            ("demuxer-max-bytes", "268435456"),
             ("keep-open", "yes"),
             ("idle", "yes"),
             ("osc", "no"),
@@ -112,7 +115,6 @@ final class MPVEngine {
 
     func load(_ url: URL) -> Bool {
         guard let handle else { return false }
-        configureDecoder(for: url, handle: handle)
         let source = url.isFileURL ? url.path : url.absoluteString
         let result = cinewave_mpv_command_3(handle, "loadfile", source, "replace")
         if result < 0 {
@@ -146,6 +148,11 @@ final class MPVEngine {
     func seek(absolute seconds: Double) {
         guard let handle else { return }
         _ = cinewave_mpv_command_3(handle, "seek", String(max(0, seconds)), "absolute+exact")
+    }
+
+    func previewSeek(absolute seconds: Double) {
+        guard let handle else { return }
+        _ = cinewave_mpv_command_3(handle, "seek", String(max(0, seconds)), "absolute+keyframes")
     }
 
     func setVolume(_ value: Double) {
@@ -224,16 +231,6 @@ final class MPVEngine {
         } else {
             _ = cinewave_mpv_command_1(handle, first)
         }
-    }
-
-    private func configureDecoder(for url: URL, handle: OpaquePointer) {
-        // H.264 in AVI commonly lacks the timestamp/extradata guarantees that
-        // VideoToolbox expects after an arbitrary seek. Software decode is
-        // inexpensive for these typically older files and avoids blue frames.
-        let hardwareMode = url.pathExtension.lowercased() == "avi"
-            ? "no"
-            : "auto-copy-safe"
-        _ = cinewave_mpv_set_string(handle, "hwdec", hardwareMode)
     }
 
     private func stringProperty(_ name: String) -> String? {
