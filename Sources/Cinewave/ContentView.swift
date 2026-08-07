@@ -8,13 +8,22 @@ struct ContentView: View {
     @State private var isFullscreenControlZoneHovered = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            if player.isSidebarVisible && !isFullscreen {
-                QueueSidebar(player: player)
-            }
-
+        ZStack {
             playerArea
+
+            if player.isSidebarVisible && !isFullscreen {
+                HStack(alignment: .top, spacing: 0) {
+                    QueueSidebar(player: player)
+                        .padding(.top, 58)
+                        .padding(.bottom, 110)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 10)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(1)
+            }
         }
+        .animation(.easeOut(duration: 0.25), value: player.isSidebarVisible)
         .background(Color(red: 0.025, green: 0.029, blue: 0.047))
         .preferredColorScheme(.dark)
         .dropDestination(for: URL.self) { urls, _ in

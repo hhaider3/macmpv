@@ -26,6 +26,13 @@ swift --version
 pkg-config --modversion mpv  # should print 2.x
 ```
 
+## Quick Start
+
+```sh
+brew install mpv ffmpeg pkg-config
+make app && open dist/macmpv.app
+```
+
 ## Install dependencies
 
 ```sh
@@ -38,6 +45,30 @@ If `pkg-config --modversion mpv` fails, ensure Homebrew's pkg-config is on your 
 brew --prefix
 export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$PKG_CONFIG_PATH"
 ```
+
+## Supported Formats
+
+Anything [mpv](https://mpv.io/) / [FFmpeg](https://ffmpeg.org/) can play. Common local extensions:
+
+`mp4`, `m4v`, `mov`, `mkv`, `mka`, `webm`, `avi`, `flv`, `ts`, `mts`, `m2ts`, `mpeg`, `mpg`, `vob`, `wmv`, `asf`, `divx`, `f4v`, `rm`, `rmvb`, `3gp`, `3g2`, `ogv`, `ogm`, `ogg`, `oga`, `opus`, `mp3`, `m4a`, `aac`, `ac3`, `dts`, `flac`, `alac`, `ape`, `aiff`, `caf`, `wav`, `wma` plus `m3u`/`m3u8` playlists.
+
+Network streams: `http`, `https`, `rtmp`, `rtsp`. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘ O` | Open media files |
+| `Space` | Play / Pause |
+| `←` / `→` | Back / Forward 10 seconds |
+| `⌘ ←` / `⌘ →` | Previous / Next item in queue |
+| `M` | Mute / Unmute |
+| `⌘ ⌥ S` | Show / Hide queue sidebar |
+| `Double-click` | Toggle full screen |
+| `Click` | Play / Pause (when media loaded) |
+| `Esc` | Exit full screen (system) |
+
+Menu commands are defined in `Sources/Cinewave/CinewaveApp.swift`.
 
 ## Run from source
 
@@ -104,7 +135,13 @@ pkg-config --modversion mpv
 
 Ensure `mpv` still installed: `brew list mpv` and `otool -L dist/macmpv.app/Contents/MacOS/macmpv` should show `/opt/homebrew/opt/mpv/lib/libmpv.2.dylib`.
 
-## Notes
+## Architecture
 
-macmpv uses mpv's copy-back hardware decoding mode and coalesced fast-seek
-previews while scrubbing, followed by an exact seek when the slider is released.
+macmpv wraps `libmpv` via `Sources/CMPV` (pkg-config `mpv`) and renders with `MPVEngine` / `MPVGLView` (`Sources/Cinewave/MPVEngine.swift`, `Sources/Cinewave/VideoSurface.swift`). Metadata is probed out-of-process with `ffprobe` (`Sources/Cinewave/MediaProbe.swift`).
+
+Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`.
+
+## Credits
+
+- [mpv](https://mpv.io/) — media playback engine (`libmpv`)
+- [FFmpeg](https://ffmpeg.org/) — `ffprobe` for metadata probing (`ffmpeg` Homebrew package)

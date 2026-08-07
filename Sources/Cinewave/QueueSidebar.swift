@@ -45,13 +45,19 @@ struct QueueSidebar: View {
                     .padding(10)
             }
         }
-        .frame(width: 260)
-        .background(Color(red: 0.055, green: 0.061, blue: 0.086))
+        .frame(width: 300)
+        .frame(maxHeight: .infinity)
+        .glassEffect(
+            .clear
+                .interactive(),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .glassEffectTransition(.materialize)
         .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(width: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.08), lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
     }
 
     private var header: some View {
