@@ -3,6 +3,8 @@
 macmpv is a native macOS video player built with SwiftUI. It embeds mpv for
 playback and uses ffprobe (from FFmpeg) to read media metadata.
 
+![macmpv playing a 4K video with playback controls visible](docs/macmpv-player.png)
+
 ## Features
 
 - Embedded, hardware-accelerated mpv playback
