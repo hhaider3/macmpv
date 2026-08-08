@@ -76,6 +76,52 @@ struct MacMPVCommands: Commands {
                 player.toggleMuted()
             }
             .keyboardShortcut("m", modifiers: [])
+
+            Button("Volume Up") {
+                player.adjustVolume(by: 5)
+            }
+            .keyboardShortcut(.upArrow, modifiers: [])
+            .disabled(!player.hasMedia)
+
+            Button("Volume Down") {
+                player.adjustVolume(by: -5)
+            }
+            .keyboardShortcut(.downArrow, modifiers: [])
+            .disabled(!player.hasMedia)
+
+            Divider()
+
+            Button("Decrease Speed") {
+                player.adjustSpeed(by: -0.25)
+            }
+            .keyboardShortcut("[", modifiers: [])
+            .disabled(!player.hasMedia)
+
+            Button("Increase Speed") {
+                player.adjustSpeed(by: 0.25)
+            }
+            .keyboardShortcut("]", modifiers: [])
+            .disabled(!player.hasMedia)
+
+            Button("Reset Speed") {
+                player.resetSpeed()
+            }
+            .keyboardShortcut("\\", modifiers: [])
+            .disabled(!player.hasMedia)
+
+            Divider()
+
+            Button("Open Subtitle File…") {
+                player.openSubtitlePanel()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(!player.hasMedia)
+
+            Button("Save Screenshot…") {
+                player.takeScreenshot()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(!player.hasMedia)
         }
 
         CommandMenu("Queue") {

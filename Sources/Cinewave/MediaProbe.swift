@@ -198,25 +198,12 @@ actor MediaProbe {
     }
 
     private func waitForExit(_ process: Process) async -> Int32 {
-        // If already exited, return immediately without installing a handler.
-        if !process.isRunning {
-            return process.terminationStatus
-        }
         return await withCheckedContinuation { continuation in
-            // Capture handler race: process could exit between the isRunning check and assignment.
-            // Set handler first, then re-check isRunning; if it exited synchronously, resume immediately
-            // and clear handler to avoid double-resume.
-            let previousHandler = process.terminationHandler
-            process.terminationHandler = { p in
-                // Restore previous handler to avoid leaking
-                p.terminationHandler = previousHandler
-                continuation.resume(returning: p.terminationStatus)
-            }
-            if !process.isRunning {
-                // Exited before handler was set; resume with current status
-                let status = process.terminationStatus
-                process.terminationHandler = previousHandler
-                continuation.resume(returning: status)
+            // waitUntilExit has one completion path, avoiding the race between an
+            // isRunning check and a concurrently invoked termination handler.
+            DispatchQueue.global(qos: .utility).async {
+                process.waitUntilExit()
+                continuation.resume(returning: process.terminationStatus)
             }
         }
     }

@@ -54,15 +54,9 @@ struct PlayerControls: View {
                         player.isSidebarVisible.toggle()
                     }
 
-                    ControlButton(symbol: "captions.bubble", help: "Cycle subtitles") {
-                        player.engine.cycleSubtitleTrack()
-                    }
-                    .disabled(!player.hasMedia)
-
-                    ControlButton(symbol: "waveform", help: "Cycle audio track") {
-                        player.engine.cycleAudioTrack()
-                    }
-                    .disabled(!player.hasMedia)
+                    subtitleMenu
+                    audioMenu
+                    markerMenu
                 }
 
                 Spacer(minLength: 16)
@@ -77,6 +71,12 @@ struct PlayerControls: View {
                         player.seek(relative: -10)
                     }
                     .disabled(!player.hasMedia)
+
+                    if player.introEndMarker != nil {
+                        ControlButton(symbol: "forward.fill", size: 14, help: "Skip intro") {
+                            player.skipIntro()
+                        }
+                    }
 
                     Button {
                         player.togglePlayback()
@@ -95,6 +95,12 @@ struct PlayerControls: View {
                         player.seek(relative: 10)
                     }
                     .disabled(!player.hasMedia)
+
+                    if player.outroStartMarker != nil {
+                        ControlButton(symbol: "forward.end.fill", size: 14, help: "Skip outro") {
+                            player.skipOutro()
+                        }
+                    }
 
                     ControlButton(symbol: "forward.end.fill", size: 15, help: "Next") {
                         player.goNext()
@@ -145,6 +151,11 @@ struct PlayerControls: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
 
+                    ControlButton(symbol: "camera.fill", help: "Save screenshot (⇧⌘S)") {
+                        player.takeScreenshot()
+                    }
+                    .disabled(!player.hasMedia)
+
                     ControlButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Enter full screen") {
                         player.toggleFullscreen()
                     }
@@ -166,8 +177,127 @@ struct PlayerControls: View {
         isScrubbing ? scrubPosition : player.position
     }
 
+    private var subtitleMenu: some View {
+        Menu {
+            Button {
+                player.selectSubtitleTrack(nil)
+            } label: {
+                if player.subtitleTracks.contains(where: \.isSelected) {
+                    Text("Subtitles Off")
+                } else {
+                    Label("Subtitles Off", systemImage: "checkmark")
+                }
+            }
+
+            if !player.subtitleTracks.isEmpty {
+                Divider()
+                ForEach(player.subtitleTracks) { track in
+                    Button {
+                        player.selectSubtitleTrack(track)
+                    } label: {
+                        if track.isSelected {
+                            Label(track.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(track.displayName)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button("Open Subtitle File…", systemImage: "folder") {
+                player.openSubtitlePanel()
+            }
+        } label: {
+            GlassMenuIcon(symbol: "captions.bubble")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(!player.hasMedia)
+        .help("Choose subtitles")
+    }
+
+    private var audioMenu: some View {
+        Menu {
+            if player.audioTracks.isEmpty {
+                Text("No audio tracks")
+            } else {
+                ForEach(player.audioTracks) { track in
+                    Button {
+                        player.selectAudioTrack(track)
+                    } label: {
+                        if track.isSelected {
+                            Label(track.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(track.displayName)
+                        }
+                    }
+                }
+            }
+        } label: {
+            GlassMenuIcon(symbol: "waveform")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(!player.hasMedia)
+        .help("Choose audio track")
+    }
+
+    private var markerMenu: some View {
+        Menu {
+            Button("Set Intro End Here", systemImage: "inpoint") {
+                player.setIntroEndMarker()
+            }
+            if let marker = player.introEndMarker {
+                Button("Skip Intro to \(marker.playbackTime)", systemImage: "forward.fill") {
+                    player.skipIntro()
+                }
+            }
+
+            Divider()
+
+            Button("Set Outro Start Here", systemImage: "outpoint") {
+                player.setOutroStartMarker()
+            }
+            if let marker = player.outroStartMarker {
+                Button("Skip Outro from \(marker.playbackTime)", systemImage: "forward.end.fill") {
+                    player.skipOutro()
+                }
+            }
+
+            if player.introEndMarker != nil || player.outroStartMarker != nil {
+                Divider()
+                Button("Clear Markers", role: .destructive) {
+                    player.clearPlaybackMarkers()
+                }
+            }
+        } label: {
+            GlassMenuIcon(symbol: "flag.fill")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(!player.hasMedia)
+        .help("Intro and outro markers")
+    }
+
     private func speedLabel(_ speed: Double) -> String {
         speed == speed.rounded() ? "\(Int(speed))×" : "\(speed.formatted())×"
+    }
+}
+
+private struct GlassMenuIcon: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.88))
+            .frame(width: 34, height: 42)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassEffect(
+                .clear.interactive(),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
     }
 }
 

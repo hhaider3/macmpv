@@ -4,9 +4,37 @@ import Foundation
 
 @MainActor
 final class MPVEngine {
-    enum Event {
+    enum TrackKind: String, Sendable {
+        case audio
+        case subtitle = "sub"
+
+        var propertyName: String {
+            switch self {
+            case .audio: "aid"
+            case .subtitle: "sid"
+            }
+        }
+    }
+
+    struct MediaTrack: Identifiable, Hashable, Sendable {
+        let id: String
+        let kind: TrackKind
+        let title: String?
+        let language: String?
+        let codec: String?
+        var isSelected: Bool
+
+        var displayName: String {
+            let fallback = kind == .audio ? "Audio \(id)" : "Subtitle \(id)"
+            let primary = title ?? language?.uppercased() ?? fallback
+            guard let codec, !codec.isEmpty else { return primary }
+            return "\(primary) · \(codec.uppercased())"
+        }
+    }
+
+    enum Event: Sendable {
         case fileLoaded
-        case endFile
+        case endFile(error: String?)
         case shutdown
     }
 
@@ -144,8 +172,9 @@ final class MPVEngine {
             // returned from mpv_wait_event (woken above), and exited.
             let barrier = DispatchSemaphore(value: 0)
             eventQueue.async { barrier.signal() }
-            // Timeout avoids hanging the main thread indefinitely if mpv misbehaves.
-            _ = barrier.wait(timeout: .now() + 2.0)
+            // mpv_wakeup guarantees the blocking wait returns. Do not destroy the
+            // handle until the queue confirms that no client call is still using it.
+            barrier.wait()
         }
         if let renderContext {
             // Clear update callback before freeing.
@@ -234,7 +263,11 @@ final class MPVEngine {
             if eid == cinewave_mpv_event_file_loaded() {
                 Task { @MainActor [weak self] in self?.onEvent?(.fileLoaded) }
             } else if eid == cinewave_mpv_event_end_file() {
-                Task { @MainActor [weak self] in self?.onEvent?(.endFile) }
+                let errorCode = cinewave_mpv_event_end_file_error(event)
+                let error = errorCode < 0
+                    ? cinewave_mpv_error_string(errorCode).map(String.init(cString:))
+                    : nil
+                Task { @MainActor [weak self] in self?.onEvent?(.endFile(error: error)) }
             } else if eid == cinewave_mpv_event_shutdown() {
                 Task { @MainActor [weak self] in self?.onEvent?(.shutdown) }
                 shouldKeepRunning = false
@@ -355,6 +388,54 @@ final class MPVEngine {
         _ = cinewave_mpv_set_double(handle, "speed", min(max(speed, 0.25), 4))
     }
 
+    func availableTracks(kind: TrackKind) -> [MediaTrack] {
+        guard let handle else { return [] }
+        let count = Int(cinewave_mpv_get_int64(handle, "track-list/count", 0))
+        guard count > 0 else { return [] }
+
+        return (0..<count).compactMap { index in
+            let prefix = "track-list/\(index)"
+            guard stringProperty("\(prefix)/type") == kind.rawValue,
+                  let id = stringProperty("\(prefix)/id") else { return nil }
+            return MediaTrack(
+                id: id,
+                kind: kind,
+                title: stringProperty("\(prefix)/title"),
+                language: stringProperty("\(prefix)/lang"),
+                codec: stringProperty("\(prefix)/codec"),
+                isSelected: cinewave_mpv_get_flag(handle, "\(prefix)/selected", 0) != 0
+            )
+        }
+    }
+
+    func selectTrack(_ track: MediaTrack?) {
+        guard let handle else { return }
+        let kind = track?.kind ?? .subtitle
+        _ = cinewave_mpv_set_string(handle, kind.propertyName, track?.id ?? "no")
+    }
+
+    func addExternalSubtitle(_ url: URL) -> Bool {
+        guard let handle else { return false }
+        let result = cinewave_mpv_command_3(handle, "sub-add", url.path, "select")
+        if result < 0 {
+            lastError = Self.errorMessage(result, context: "Adding subtitles")
+            return false
+        }
+        lastError = nil
+        return true
+    }
+
+    func saveScreenshot(to url: URL) -> Bool {
+        guard let handle else { return false }
+        let result = cinewave_mpv_command_3(handle, "screenshot-to-file", url.path, "video")
+        if result < 0 {
+            lastError = Self.errorMessage(result, context: "Saving screenshot")
+            return false
+        }
+        lastError = nil
+        return true
+    }
+
     func cycleAudioTrack() {
         command("cycle", "audio")
     }
@@ -395,7 +476,7 @@ final class MPVEngine {
             if event == cinewave_mpv_event_file_loaded() {
                 events.append(.fileLoaded)
             } else if event == cinewave_mpv_event_end_file() {
-                events.append(.endFile)
+                events.append(.endFile(error: nil))
             } else if event == cinewave_mpv_event_shutdown() {
                 events.append(.shutdown)
             }

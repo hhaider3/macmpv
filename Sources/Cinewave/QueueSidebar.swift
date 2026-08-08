@@ -17,7 +17,12 @@ struct QueueSidebar: View {
                             QueueRow(
                                 item: item,
                                 index: index,
-                                isCurrent: item.id == player.currentID
+                                isCurrent: item.id == player.currentID,
+                                moveBefore: { draggedID in
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        player.moveQueueItem(id: draggedID, before: item.id)
+                                    }
+                                }
                             ) {
                                 player.play(item)
                             }
@@ -45,8 +50,12 @@ struct QueueSidebar: View {
                     .padding(10)
             }
         }
-        .frame(width: 300)
-        .frame(maxHeight: .infinity)
+        .frame(
+            minWidth: 300,
+            idealWidth: 300,
+            maxWidth: 300,
+            maxHeight: .infinity
+        )
         .glassEffect(
             .clear
                 .interactive(),
@@ -129,6 +138,7 @@ private struct QueueRow: View {
     let item: MediaItem
     let index: Int
     let isCurrent: Bool
+    let moveBefore: (UUID) -> Void
     let action: () -> Void
 
     var body: some View {
@@ -169,6 +179,10 @@ private struct QueueRow: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary.opacity(0.7))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
@@ -179,6 +193,13 @@ private struct QueueRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .draggable(item.id.uuidString)
+        .dropDestination(for: String.self) { values, _ in
+            guard let value = values.first,
+                  let draggedID = UUID(uuidString: value) else { return false }
+            moveBefore(draggedID)
+            return true
+        }
     }
 }
 

@@ -87,6 +87,17 @@ static inline int cinewave_mpv_get_flag(
         : fallback;
 }
 
+static inline int64_t cinewave_mpv_get_int64(
+    mpv_handle *handle,
+    const char *name,
+    int64_t fallback
+) {
+    int64_t value = fallback;
+    return mpv_get_property(handle, name, MPV_FORMAT_INT64, &value) >= 0
+        ? value
+        : fallback;
+}
+
 static inline char *cinewave_mpv_get_string(
     mpv_handle *handle,
     const char *name
@@ -155,6 +166,12 @@ static inline int cinewave_mpv_event_file_loaded(void) {
 
 static inline int cinewave_mpv_event_end_file(void) {
     return (int)MPV_EVENT_END_FILE;
+}
+
+static inline int cinewave_mpv_event_end_file_error(const mpv_event *event) {
+    if (!event || event->event_id != MPV_EVENT_END_FILE) return 0;
+    mpv_event_end_file *end_file = (mpv_event_end_file *)event->data;
+    return end_file ? end_file->error : 0;
 }
 
 static inline int cinewave_mpv_event_shutdown(void) {

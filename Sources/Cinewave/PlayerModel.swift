@@ -6,6 +6,11 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class PlayerModel {
+    private struct PlaybackMarkers: Codable {
+        var introEnd: Double?
+        var outroStart: Double?
+    }
+
     enum RepeatMode: String, CaseIterable {
         case off
         case all
@@ -44,10 +49,14 @@ final class PlayerModel {
     var volume: Double = 80
     var speed: Double = 1
     var repeatMode: RepeatMode = .off
-    var isSidebarVisible = true
+    var isSidebarVisible = false
     var isLoading = false
     var errorMessage: String?
     var engineTitle: String?
+    var audioTracks: [MPVEngine.MediaTrack] = []
+    var subtitleTracks: [MPVEngine.MediaTrack] = []
+    var introEndMarker: Double?
+    var outroStartMarker: Double?
 
     @ObservationIgnored let engine = MPVEngine()
     @ObservationIgnored private let probe = MediaProbe()
@@ -58,8 +67,14 @@ final class PlayerModel {
     @ObservationIgnored private var pendingPreviewPosition: Double?
     @ObservationIgnored private var lastPreviewSeekUptime: TimeInterval = -.infinity
     @ObservationIgnored private var wasPlayingBeforeScrub = false
+    @ObservationIgnored private var pendingResumePosition: Double?
+    @ObservationIgnored private var rememberedPositions: [String: Double] = [:]
+    @ObservationIgnored private var rememberedMarkers: [String: PlaybackMarkers] = [:]
+    @ObservationIgnored private var persistenceTask: Task<Void, Never>?
 
     private let previewSeekInterval: TimeInterval = 0.18
+    private static let positionsDefaultsKey = "playback.positions.v1"
+    private static let markersDefaultsKey = "playback.markers.v1"
 
     var currentItem: MediaItem? {
         guard let currentID else { return nil }
@@ -96,6 +111,8 @@ final class PlayerModel {
     init() {
         let storedVolume = UserDefaults.standard.object(forKey: "player.volume") as? Double
         volume = storedVolume.map { min(max($0, 0), 100) } ?? 80
+        rememberedPositions = Self.load([String: Double].self, key: Self.positionsDefaultsKey) ?? [:]
+        rememberedMarkers = Self.load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
     }
 
     deinit {
@@ -121,6 +138,7 @@ final class PlayerModel {
 
     func detachVideoView(_ view: MPVGLView) {
         guard videoView === view else { return }
+        rememberCurrentProgress(saveImmediately: true)
         view.stopPlaybackEngine()
         videoView = nil
         // Tear down event-driven callbacks and reset transient UI state.
@@ -137,11 +155,23 @@ final class PlayerModel {
             case .fileLoaded:
                 self.ignoreNextEndEvent = false
                 self.isLoading = false
-            case .endFile:
+                self.refreshTracks()
+                if let resumePosition = self.pendingResumePosition, resumePosition > 5 {
+                    self.engine.seek(absolute: resumePosition)
+                    self.position = resumePosition
+                }
+                self.pendingResumePosition = nil
+            case .endFile(let error):
                 if self.ignoreNextEndEvent {
                     self.ignoreNextEndEvent = false
                 } else {
-                    self.handlePlaybackEnded()
+                    self.isLoading = false
+                    self.isPlaying = false
+                    if let error {
+                        self.errorMessage = "Playback failed: \(error)"
+                    } else {
+                        self.handlePlaybackEnded()
+                    }
                 }
             case .shutdown:
                 self.isPlaying = false
@@ -151,11 +181,14 @@ final class PlayerModel {
 
         engine.onSnapshot = { [weak self] snapshot in
             guard let self, self.hasMedia else { return }
-            // Publish only changed values — engine already diffs, but we guard
-            // duration reset and avoid overwriting scrub position while dragging.
-            self.position = snapshot.position
-            if snapshot.duration > 0 {
-                self.duration = snapshot.duration
+            // Ignore positional snapshots from the item being replaced until the
+            // new file-loaded event arrives.
+            if !self.isLoading {
+                self.position = snapshot.position
+                if snapshot.duration > 0 {
+                    self.duration = snapshot.duration
+                }
+                self.rememberCurrentProgress(saveImmediately: false)
             }
             self.isPlaying = !snapshot.paused && !snapshot.eofReached
             self.isMuted = snapshot.muted
@@ -231,12 +264,21 @@ final class PlayerModel {
 
     func play(_ item: MediaItem) {
         guard queue.contains(where: { $0.id == item.id }) else { return }
+        rememberCurrentProgress(saveImmediately: true)
+        let isReplacingCurrentItem = currentID != nil
         currentID = item.id
         position = 0
         duration = item.metadata?.duration ?? 0
         engineTitle = nil
         isLoading = true
-        ignoreNextEndEvent = true
+        ignoreNextEndEvent = isReplacingCurrentItem
+        let key = persistenceKey(for: item.url)
+        pendingResumePosition = rememberedPositions[key]
+        let markers = rememberedMarkers[key]
+        introEndMarker = markers?.introEnd
+        outroStartMarker = markers?.outroStart
+        audioTracks = []
+        subtitleTracks = []
         loadCurrentItem()
     }
 
@@ -337,6 +379,10 @@ final class PlayerModel {
         }
     }
 
+    func adjustVolume(by delta: Double) {
+        setVolume(volume + delta)
+    }
+
     func setMuted(_ muted: Bool) {
         isMuted = muted
         engine.setMuted(muted)
@@ -347,17 +393,132 @@ final class PlayerModel {
     }
 
     func setSpeed(_ newSpeed: Double) {
-        speed = newSpeed
-        engine.setSpeed(newSpeed)
+        speed = min(max(newSpeed, 0.25), 4)
+        engine.setSpeed(speed)
+    }
+
+    func adjustSpeed(by delta: Double) {
+        setSpeed((speed + delta).rounded(toPlaces: 2))
+    }
+
+    func resetSpeed() {
+        setSpeed(1)
     }
 
     func cycleRepeatMode() {
         repeatMode.advance()
     }
 
+    func selectAudioTrack(_ track: MPVEngine.MediaTrack) {
+        engine.selectTrack(track)
+        audioTracks = audioTracks.map { item in
+            var item = item
+            item.isSelected = item.id == track.id
+            return item
+        }
+    }
+
+    func selectSubtitleTrack(_ track: MPVEngine.MediaTrack?) {
+        engine.selectTrack(track)
+        subtitleTracks = subtitleTracks.map { item in
+            var item = item
+            item.isSelected = item.id == track?.id
+            return item
+        }
+    }
+
+    func openSubtitlePanel() {
+        guard hasMedia else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Open subtitles"
+        panel.message = "Choose an SRT, ASS, SSA, or WebVTT subtitle file"
+        panel.prompt = "Open Subtitle"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = ["srt", "ass", "ssa", "vtt", "sub"]
+            .compactMap { UTType(filenameExtension: $0) }
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            guard self.engine.addExternalSubtitle(url) else {
+                self.errorMessage = self.engine.lastError ?? "The subtitle file could not be opened."
+                return
+            }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                self?.refreshTracks()
+            }
+        }
+    }
+
+    func takeScreenshot() {
+        guard hasMedia else { return }
+        let panel = NSSavePanel()
+        panel.title = "Save Screenshot"
+        panel.prompt = "Save"
+        panel.allowedContentTypes = [.png]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = screenshotFilename()
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            if !self.engine.saveScreenshot(to: url) {
+                self.errorMessage = self.engine.lastError ?? "The screenshot could not be saved."
+            }
+        }
+    }
+
+    func setIntroEndMarker() {
+        guard hasMedia else { return }
+        introEndMarker = position
+        saveCurrentMarkers()
+    }
+
+    func setOutroStartMarker() {
+        guard hasMedia else { return }
+        outroStartMarker = position
+        saveCurrentMarkers()
+    }
+
+    func clearPlaybackMarkers() {
+        guard let currentItem else { return }
+        introEndMarker = nil
+        outroStartMarker = nil
+        rememberedMarkers.removeValue(forKey: persistenceKey(for: currentItem.url))
+        persistStores()
+    }
+
+    func skipIntro() {
+        guard let introEndMarker else { return }
+        seek(to: introEndMarker)
+    }
+
+    func skipOutro() {
+        guard outroStartMarker != nil else { return }
+        if canGoNext {
+            goNext()
+        } else {
+            seek(to: duration)
+            playPause(false)
+        }
+    }
+
+    func moveQueueItem(id: UUID, before destinationID: UUID) {
+        guard id != destinationID,
+              let sourceIndex = queue.firstIndex(where: { $0.id == id }) else { return }
+        let item = queue.remove(at: sourceIndex)
+        guard let destinationIndex = queue.firstIndex(where: { $0.id == destinationID }) else {
+            queue.insert(item, at: min(sourceIndex, queue.count))
+            return
+        }
+        queue.insert(item, at: destinationIndex)
+    }
+
     func remove(_ item: MediaItem) {
         guard let index = queue.firstIndex(where: { $0.id == item.id }) else { return }
         let wasCurrent = item.id == currentID
+        if wasCurrent {
+            rememberCurrentProgress(saveImmediately: true)
+        }
         queue.remove(at: index)
         guard wasCurrent else { return }
 
@@ -374,12 +535,17 @@ final class PlayerModel {
     }
 
     func clearQueue() {
+        rememberCurrentProgress(saveImmediately: true)
         queue.removeAll()
         currentID = nil
         engineTitle = nil
         position = 0
         duration = 0
         isPlaying = false
+        audioTracks = []
+        subtitleTracks = []
+        introEndMarker = nil
+        outroStartMarker = nil
         engine.stop()
     }
 
@@ -397,10 +563,80 @@ final class PlayerModel {
             engine.setPaused(false)
             isPlaying = true
         } else {
+            ignoreNextEndEvent = false
             isLoading = false
             isPlaying = false
             errorMessage = engine.lastError
         }
+    }
+
+    private func refreshTracks() {
+        audioTracks = engine.availableTracks(kind: .audio)
+        subtitleTracks = engine.availableTracks(kind: .subtitle)
+    }
+
+    private func rememberCurrentProgress(saveImmediately: Bool) {
+        guard let currentItem else { return }
+        let key = persistenceKey(for: currentItem.url)
+        if position >= 5, duration <= 0 || position < duration - 10 {
+            rememberedPositions[key] = position
+        } else if duration > 0, position >= duration - 10 {
+            rememberedPositions.removeValue(forKey: key)
+        }
+
+        if saveImmediately {
+            persistenceTask?.cancel()
+            persistStores()
+        } else {
+            schedulePersistence()
+        }
+    }
+
+    private func saveCurrentMarkers() {
+        guard let currentItem else { return }
+        rememberedMarkers[persistenceKey(for: currentItem.url)] = PlaybackMarkers(
+            introEnd: introEndMarker,
+            outroStart: outroStartMarker
+        )
+        persistStores()
+    }
+
+    private func schedulePersistence() {
+        persistenceTask?.cancel()
+        persistenceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.persistStores()
+        }
+    }
+
+    private func persistStores() {
+        persistenceTask = nil
+        if let positions = try? JSONEncoder().encode(rememberedPositions) {
+            UserDefaults.standard.set(positions, forKey: Self.positionsDefaultsKey)
+        }
+        if let markers = try? JSONEncoder().encode(rememberedMarkers) {
+            UserDefaults.standard.set(markers, forKey: Self.markersDefaultsKey)
+        }
+    }
+
+    private func persistenceKey(for url: URL) -> String {
+        url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
+    }
+
+    private func screenshotFilename() -> String {
+        let rawTitle = currentItem?.title ?? "Screenshot"
+        let safeTitle = rawTitle.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return "\(safeTitle.isEmpty ? "Screenshot" : safeTitle)-\(formatter.string(from: Date())).png"
+    }
+
+    private static func load<T: Decodable>(_ type: T.Type, key: String) -> T? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     private func inspect(_ item: MediaItem) {
@@ -431,6 +667,10 @@ final class PlayerModel {
     }
 
     private func handlePlaybackEnded() {
+        if let currentItem {
+            rememberedPositions.removeValue(forKey: persistenceKey(for: currentItem.url))
+            persistStores()
+        }
         switch repeatMode {
         case .one:
             seek(to: 0)
@@ -442,5 +682,12 @@ final class PlayerModel {
                 isPlaying = false
             }
         }
+    }
+}
+
+private extension Double {
+    func rounded(toPlaces places: Int) -> Double {
+        let factor = pow(10, Double(places))
+        return (self * factor).rounded() / factor
     }
 }

@@ -11,11 +11,11 @@ struct ContentView: View {
         ZStack {
             playerArea
 
-            if player.isSidebarVisible && !isFullscreen {
+            if player.isSidebarVisible {
                 HStack(alignment: .top, spacing: 0) {
                     QueueSidebar(player: player)
                         .padding(.top, 58)
-                        .padding(.bottom, 110)
+                        .padding(.bottom, 130)
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, 10)
@@ -67,16 +67,16 @@ struct ContentView: View {
                     transaction.animation = nil
                 }
 
+            if !player.hasMedia {
+                WelcomeView(
+                    openFiles: player.openPanel,
+                    openURL: { isShowingURLSheet = true }
+                )
+            }
+
             if isFullscreen {
                 fullscreenControls
             } else {
-                if !player.hasMedia {
-                    WelcomeView(
-                        openFiles: player.openPanel,
-                        openURL: { isShowingURLSheet = true }
-                    )
-                }
-
                 LinearGradient(
                     colors: [.clear, .clear, .black.opacity(player.hasMedia ? 0.16 : 0.02)],
                     startPoint: .top,

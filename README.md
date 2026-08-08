@@ -7,8 +7,11 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 
 - Embedded, hardware-accelerated mpv playback
 - Local video/audio files and HTTP, HTTPS, RTMP, or RTSP streams
-- Drag-and-drop queue with next/previous and repeat modes
+- Drag-and-drop, reorderable queue with next/previous and repeat modes
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
+- Per-file playback resume and saved intro/outro markers
+- External subtitle loading and selectable audio/subtitle track menus
+- PNG screenshots through the player controls or keyboard
 - ffprobe metadata for duration, resolution, frame rate, codecs, and format
 - Full-screen playback and native macOS keyboard commands
 
@@ -61,8 +64,13 @@ Network streams: `http`, `https`, `rtmp`, `rtsp`. URL schemes and extension chec
 | `⌘ O` | Open media files |
 | `Space` | Play / Pause |
 | `←` / `→` | Back / Forward 10 seconds |
+| `↑` / `↓` | Volume up / down |
 | `⌘ ←` / `⌘ →` | Previous / Next item in queue |
 | `M` | Mute / Unmute |
+| `[` / `]` | Decrease / Increase playback speed |
+| `\` | Reset playback speed to 1× |
+| `⇧ ⌘ O` | Open external subtitle file |
+| `⇧ ⌘ S` | Save screenshot |
 | `⌘ ⌥ S` | Show / Hide queue sidebar |
 | `Double-click` | Toggle full screen |
 | `Click` | Play / Pause (when media loaded) |
