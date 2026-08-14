@@ -12,8 +12,16 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     }
 
     var title: String {
+        if !url.isFileURL,
+           url.scheme?.lowercased() == "magnet",
+           let displayName = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name.lowercased() == "dn" })?.value,
+           !displayName.isEmpty {
+            return displayName
+        }
         let name = url.deletingPathExtension().lastPathComponent
-        return name.isEmpty ? url.lastPathComponent : name
+        if !name.isEmpty { return name }
+        return url.lastPathComponent.isEmpty ? "Magnet Stream" : url.lastPathComponent
     }
 
     var fileExtension: String {
@@ -52,16 +60,21 @@ enum MediaSupport {
     static let extensions: Set<String> = [
         "3g2", "3gp", "aac", "ac3", "aiff", "alac", "ape", "asf", "avi",
         "av1", "caf", "divx", "dts", "dv", "f4v", "flac", "flv", "m2ts",
-        "m3u", "m3u8", "m4a", "m4v", "mka", "mkv", "mov", "mp2", "mp3",
+        "m3u", "m3u8", "m4a", "m4v", "magnet", "mka", "mkv", "mov", "mp2", "mp3",
         "mp4", "mpeg", "mpg", "mts", "oga", "ogg", "ogm", "ogv", "opus",
-        "rm", "rmvb", "ts", "vob", "wav", "webm", "wma", "wmv"
+        "rm", "rmvb", "torrent", "ts", "vob", "wav", "webm", "wma", "wmv"
     ]
 
     static func isPlayable(_ url: URL) -> Bool {
         guard url.isFileURL else {
-            return ["http", "https", "rtmp", "rtsp"].contains(url.scheme?.lowercased() ?? "")
+            return ["http", "https", "magnet", "rtmp", "rtsp"].contains(url.scheme?.lowercased() ?? "")
         }
         return extensions.contains(url.pathExtension.lowercased())
+    }
+
+    static func isTorrentSource(_ url: URL) -> Bool {
+        (url.isFileURL && ["magnet", "torrent"].contains(url.pathExtension.lowercased())) ||
+            url.scheme?.lowercased() == "magnet"
     }
 }
 

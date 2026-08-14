@@ -297,7 +297,7 @@ private struct OpenURLSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Open Network Stream")
                         .font(.system(size: 17, weight: .semibold))
-                    Text("HTTP, HTTPS, RTMP, and RTSP are supported.")
+                    Text("HTTP, HTTPS, RTMP, RTSP, and magnet links are supported.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

@@ -60,6 +60,7 @@ final class PlayerModel {
 
     @ObservationIgnored let engine = MPVEngine()
     @ObservationIgnored private let probe = MediaProbe()
+    @ObservationIgnored private let magnetStream = MagnetStream()
     @ObservationIgnored private weak var videoView: MPVGLView?
     @ObservationIgnored private var ignoreNextEndEvent = false
     @ObservationIgnored private var didReadLaunchArguments = false
@@ -139,6 +140,7 @@ final class PlayerModel {
     func detachVideoView(_ view: MPVGLView) {
         guard videoView === view else { return }
         rememberCurrentProgress(saveImmediately: true)
+        magnetStream.stop()
         view.stopPlaybackEngine()
         videoView = nil
         // Tear down event-driven callbacks and reset transient UI state.
@@ -168,12 +170,14 @@ final class PlayerModel {
                     self.isLoading = false
                     self.isPlaying = false
                     if let error {
+                        self.magnetStream.stop()
                         self.errorMessage = "Playback failed: \(error)"
                     } else {
                         self.handlePlaybackEnded()
                     }
                 }
             case .shutdown:
+                self.magnetStream.stop()
                 self.isPlaying = false
                 self.isLoading = false
             }
@@ -222,7 +226,14 @@ final class PlayerModel {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.audiovisualContent, .movie, .audio]
+        var contentTypes: [UTType] = [.audiovisualContent, .movie, .audio]
+        if let magnetType = UTType(filenameExtension: "magnet") {
+            contentTypes.append(magnetType)
+        }
+        if let torrentType = UTType(filenameExtension: "torrent") {
+            contentTypes.append(torrentType)
+        }
+        panel.allowedContentTypes = contentTypes
         panel.begin { [weak self] response in
             guard response == .OK else { return }
             self?.enqueue(panel.urls, playFirst: true)
@@ -256,7 +267,7 @@ final class PlayerModel {
     func openNetworkURL(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), MediaSupport.isPlayable(url) else {
-            errorMessage = "Enter a valid HTTP, HTTPS, RTMP, or RTSP media URL."
+            errorMessage = "Enter a valid HTTP, HTTPS, RTMP, RTSP, or magnet URL."
             return
         }
         enqueue([url], playFirst: true)
@@ -273,7 +284,7 @@ final class PlayerModel {
         isLoading = true
         ignoreNextEndEvent = isReplacingCurrentItem
         let key = persistenceKey(for: item.url)
-        pendingResumePosition = rememberedPositions[key]
+        pendingResumePosition = MediaSupport.isTorrentSource(item.url) ? nil : rememberedPositions[key]
         let markers = rememberedMarkers[key]
         introEndMarker = markers?.introEnd
         outroStartMarker = markers?.outroStart
@@ -523,6 +534,7 @@ final class PlayerModel {
         guard wasCurrent else { return }
 
         if queue.isEmpty {
+            magnetStream.stop()
             currentID = nil
             engineTitle = nil
             position = 0
@@ -536,6 +548,7 @@ final class PlayerModel {
 
     func clearQueue() {
         rememberCurrentProgress(saveImmediately: true)
+        magnetStream.stop()
         queue.removeAll()
         currentID = nil
         engineTitle = nil
@@ -559,7 +572,36 @@ final class PlayerModel {
 
     private func loadCurrentItem() {
         guard engine.isReady, let currentItem else { return }
-        if engine.load(currentItem.url) {
+
+        if MediaSupport.isTorrentSource(currentItem.url) {
+            let itemID = currentItem.id
+            // Swallow the end-file event `stop` emits so it isn't mistaken for the
+            // magnet stream finishing before it has resolved.
+            ignoreNextEndEvent = true
+            pendingResumePosition = nil
+            engine.stop()
+            isPlaying = false
+            magnetStream.start(from: currentItem.url) { [weak self] result in
+                guard let self, self.currentID == itemID else { return }
+                switch result {
+                case .success(let streamURL):
+                    self.loadResolvedSource(streamURL)
+                case .failure(let error):
+                    self.ignoreNextEndEvent = false
+                    self.isLoading = false
+                    self.isPlaying = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+            return
+        }
+
+        magnetStream.stop()
+        loadResolvedSource(currentItem.url)
+    }
+
+    private func loadResolvedSource(_ source: URL) {
+        if engine.load(source) {
             engine.setPaused(false)
             isPlaying = true
         } else {
@@ -576,7 +618,9 @@ final class PlayerModel {
     }
 
     private func rememberCurrentProgress(saveImmediately: Bool) {
-        guard let currentItem else { return }
+        // Magnet streams are ephemeral; their localhost URL changes every session, so
+        // there is nothing meaningful to resume or persist.
+        guard let currentItem, !MediaSupport.isTorrentSource(currentItem.url) else { return }
         let key = persistenceKey(for: currentItem.url)
         if position >= 5, duration <= 0 || position < duration - 10 {
             rememberedPositions[key] = position
@@ -640,6 +684,7 @@ final class PlayerModel {
     }
 
     private func inspect(_ item: MediaItem) {
+        guard !MediaSupport.isTorrentSource(item.url) else { return }
         Task { [weak self] in
             guard let self else { return }
             let metadata = await probe.inspect(item.url)
@@ -680,6 +725,7 @@ final class PlayerModel {
                 goNext()
             } else {
                 isPlaying = false
+                magnetStream.stop()
             }
         }
     }

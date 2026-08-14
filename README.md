@@ -9,6 +9,7 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 
 - Embedded, hardware-accelerated mpv playback
 - Local video/audio files and HTTP, HTTPS, RTMP, or RTSP streams
+- `.magnet`, `.torrent`, and magnet links through WebTorrent CLI
 - Drag-and-drop, reorderable queue with next/previous and repeat modes
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
 - Per-file playback resume and saved intro/outro markers
@@ -22,6 +23,7 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 - macOS 26
 - Xcode 26 or newer (including Command Line Tools)
 - Homebrew `mpv` and `ffmpeg` with `pkg-config`
+- Node.js/npm and WebTorrent CLI for torrent playback only (`npm install -g webtorrent-cli`)
 
 Verify your toolchain:
 
@@ -34,14 +36,16 @@ pkg-config --modversion mpv  # should print 2.x
 ## Quick Start
 
 ```sh
-brew install mpv ffmpeg pkg-config
+brew install mpv ffmpeg pkg-config node
+npm install -g webtorrent-cli
 make app && open dist/macmpv.app
 ```
 
 ## Install dependencies
 
 ```sh
-brew install mpv ffmpeg pkg-config
+brew install mpv ffmpeg pkg-config node
+npm install -g webtorrent-cli
 ```
 
 If `pkg-config --modversion mpv` fails, ensure Homebrew's pkg-config is on your PATH:
@@ -57,7 +61,7 @@ Anything [mpv](https://mpv.io/) / [FFmpeg](https://ffmpeg.org/) can play. Common
 
 `mp4`, `m4v`, `mov`, `mkv`, `mka`, `webm`, `avi`, `flv`, `ts`, `mts`, `m2ts`, `mpeg`, `mpg`, `vob`, `wmv`, `asf`, `divx`, `f4v`, `rm`, `rmvb`, `3gp`, `3g2`, `ogv`, `ogm`, `ogg`, `oga`, `opus`, `mp3`, `m4a`, `aac`, `ac3`, `dts`, `flac`, `alac`, `ape`, `aiff`, `caf`, `wav`, `wma` plus `m3u`/`m3u8` playlists.
 
-Network streams: `http`, `https`, `rtmp`, `rtsp`. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
+Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. Torrent playback uses WebTorrent CLI, selects the torrent's largest file, and streams it to the embedded player over localhost. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
 
 ## Keyboard Shortcuts
 

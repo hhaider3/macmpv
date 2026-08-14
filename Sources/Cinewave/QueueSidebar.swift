@@ -229,6 +229,10 @@ private struct CurrentMediaDetails: View {
                         MetadataPill(fps)
                     }
                 }
+            } else if MediaSupport.isTorrentSource(item.url) {
+                Text("Streaming from BitTorrent")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
