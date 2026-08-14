@@ -347,15 +347,33 @@ final class MPVEngine {
         command("stop")
     }
 
-    func togglePause() {
-        guard let handle else { return }
+    @discardableResult
+    func togglePause() -> Bool {
+        guard let handle else {
+            lastError = "The playback engine is not ready."
+            return false
+        }
         let paused = cinewave_mpv_get_flag(handle, "pause", 0) != 0
-        _ = cinewave_mpv_set_flag(handle, "pause", paused ? 0 : 1)
+        let result = cinewave_mpv_set_flag(handle, "pause", paused ? 0 : 1)
+        if result < 0 {
+            lastError = Self.errorMessage(result, context: "Toggling playback")
+            return false
+        }
+        return true
     }
 
-    func setPaused(_ paused: Bool) {
-        guard let handle else { return }
-        _ = cinewave_mpv_set_flag(handle, "pause", paused ? 1 : 0)
+    @discardableResult
+    func setPaused(_ paused: Bool) -> Bool {
+        guard let handle else {
+            lastError = "The playback engine is not ready."
+            return false
+        }
+        let result = cinewave_mpv_set_flag(handle, "pause", paused ? 1 : 0)
+        if result < 0 {
+            lastError = Self.errorMessage(result, context: paused ? "Pausing playback" : "Starting playback")
+            return false
+        }
+        return true
     }
 
     func seek(relative seconds: Double) {
@@ -386,6 +404,15 @@ final class MPVEngine {
     func setSpeed(_ speed: Double) {
         guard let handle else { return }
         _ = cinewave_mpv_set_double(handle, "speed", min(max(speed, 0.25), 4))
+    }
+
+    func setSubtitlePosition(_ value: Double) {
+        guard let handle else { return }
+        let position = min(max(value, 0), 150)
+        let result = cinewave_mpv_set_double(handle, "sub-pos", position)
+        if result < 0 {
+            lastError = Self.errorMessage(result, context: "Positioning subtitles")
+        }
     }
 
     func availableTracks(kind: TrackKind) -> [MediaTrack] {

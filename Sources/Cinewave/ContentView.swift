@@ -49,6 +49,15 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        .onAppear {
+            updateSubtitleControlInset()
+        }
+        .onChange(of: isFullscreen) {
+            updateSubtitleControlInset()
+        }
+        .onChange(of: isFullscreenControlZoneHovered) {
+            updateSubtitleControlInset()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             isFullscreen = true
             isFullscreenControlZoneHovered = false
@@ -57,6 +66,10 @@ struct ContentView: View {
             isFullscreen = false
             isFullscreenControlZoneHovered = false
         }
+    }
+
+    private func updateSubtitleControlInset() {
+        player.setControlsOverlayVisible(!isFullscreen || isFullscreenControlZoneHovered)
     }
 
     private var playerArea: some View {
@@ -112,14 +125,6 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            player.toggleFullscreen()
-        }
-        .onTapGesture(count: 1) {
-            guard player.hasMedia else { return }
-            player.togglePlayback()
         }
     }
 

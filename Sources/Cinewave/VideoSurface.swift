@@ -5,8 +5,11 @@ import SwiftUI
 
 final class MPVGLView: NSOpenGLView {
     weak var engine: MPVEngine?
+    var onSingleClick: (() -> Void)?
+    var onDoubleClick: (() -> Void)?
     private weak var observedWindow: NSWindow?
     private var consecutiveNoFrameCount = 0
+    private var pendingSingleClick: DispatchWorkItem?
 
     // macOS 14+ displayLink – automatically pauses when the view is hidden or off-screen.
     @available(macOS 14.0, *)
@@ -90,6 +93,27 @@ final class MPVGLView: NSOpenGLView {
         needsDisplay = true
     }
 
+    override func mouseUp(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            pendingSingleClick?.cancel()
+            pendingSingleClick = nil
+            onDoubleClick?()
+            return
+        }
+
+        guard event.clickCount == 1 else { return }
+        pendingSingleClick?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.pendingSingleClick = nil
+            self?.onSingleClick?()
+        }
+        pendingSingleClick = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + NSEvent.doubleClickInterval,
+            execute: workItem
+        )
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if observedWindow !== window {
@@ -144,6 +168,8 @@ final class MPVGLView: NSOpenGLView {
     }
 
     private func teardownDisplayLink() {
+        pendingSingleClick?.cancel()
+        pendingSingleClick = nil
         if #available(macOS 14.0, *) {
             displayLink?.invalidate()
             displayLink = nil
@@ -222,6 +248,13 @@ struct VideoSurface: NSViewRepresentable {
             fatalError("macmpv could not create an accelerated OpenGL surface.")
         }
         view.engine = player.engine
+        view.onSingleClick = { [weak player] in
+            guard let player, player.hasMedia else { return }
+            player.togglePlayback()
+        }
+        view.onDoubleClick = { [weak player] in
+            player?.toggleFullscreen()
+        }
         player.attachVideoView(view)
         return view
     }
@@ -229,6 +262,8 @@ struct VideoSurface: NSViewRepresentable {
     func updateNSView(_ nsView: MPVGLView, context: Context) {}
 
     static func dismantleNSView(_ nsView: MPVGLView, coordinator: Coordinator) {
+        nsView.onSingleClick = nil
+        nsView.onDoubleClick = nil
         coordinator.player.detachVideoView(nsView)
     }
 }

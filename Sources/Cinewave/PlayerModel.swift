@@ -72,6 +72,7 @@ final class PlayerModel {
     @ObservationIgnored private var rememberedPositions: [String: Double] = [:]
     @ObservationIgnored private var rememberedMarkers: [String: PlaybackMarkers] = [:]
     @ObservationIgnored private var persistenceTask: Task<Void, Never>?
+    @ObservationIgnored private var controlsOverlayVisible = true
 
     private let previewSeekInterval: TimeInterval = 0.18
     private static let positionsDefaultsKey = "playback.positions.v1"
@@ -116,11 +117,6 @@ final class PlayerModel {
         rememberedMarkers = Self.load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
     }
 
-    deinit {
-        // Ensure event callbacks do not outlive the model.
-        // Synchronous cleanup; engine shutdown is handled by the view.
-    }
-
     func attachVideoView(_ view: MPVGLView) {
         if let existingView = videoView, existingView !== view {
             existingView.stopPlaybackEngine()
@@ -131,6 +127,7 @@ final class PlayerModel {
             return
         }
         engine.setVolume(volume)
+        updateSubtitlePosition()
         bindEngineCallbacks()
         if currentID != nil {
             loadCurrentItem()
@@ -298,14 +295,20 @@ final class PlayerModel {
             openPanel()
             return
         }
-        engine.togglePause()
-        isPlaying.toggle()
+        if engine.togglePause() {
+            isPlaying.toggle()
+        } else if let detail = engine.lastError {
+            errorMessage = detail
+        }
     }
 
     func playPause(_ shouldPlay: Bool) {
         guard hasMedia else { return }
-        engine.setPaused(!shouldPlay)
-        isPlaying = shouldPlay
+        if engine.setPaused(!shouldPlay) {
+            isPlaying = shouldPlay
+        } else if let detail = engine.lastError {
+            errorMessage = detail
+        }
     }
 
     func seek(relative seconds: Double) {
@@ -326,8 +329,11 @@ final class PlayerModel {
         cancelPendingPreviewSeek()
         wasPlayingBeforeScrub = isPlaying
         if wasPlayingBeforeScrub {
-            engine.setPaused(true)
-            isPlaying = false
+            if engine.setPaused(true) {
+                isPlaying = false
+            } else {
+                wasPlayingBeforeScrub = false
+            }
         }
     }
 
@@ -355,8 +361,9 @@ final class PlayerModel {
     func endScrubbing(at seconds: Double) {
         seek(to: seconds)
         if wasPlayingBeforeScrub {
-            engine.setPaused(false)
-            isPlaying = true
+            if engine.setPaused(false) {
+                isPlaying = true
+            }
         }
         wasPlayingBeforeScrub = false
     }
@@ -570,6 +577,19 @@ final class PlayerModel {
         errorMessage = nil
     }
 
+    func setControlsOverlayVisible(_ visible: Bool) {
+        guard controlsOverlayVisible != visible else { return }
+        controlsOverlayVisible = visible
+        updateSubtitlePosition()
+    }
+
+    func prepareForTermination() {
+        persistenceTask?.cancel()
+        rememberCurrentProgress(saveImmediately: true)
+        persistStores()
+        magnetStream.stop()
+    }
+
     private func loadCurrentItem() {
         guard engine.isReady, let currentItem else { return }
 
@@ -600,10 +620,18 @@ final class PlayerModel {
         loadResolvedSource(currentItem.url)
     }
 
+    private func updateSubtitlePosition() {
+        engine.setSubtitlePosition(controlsOverlayVisible ? 94 : 100)
+    }
+
     private func loadResolvedSource(_ source: URL) {
         if engine.load(source) {
-            engine.setPaused(false)
-            isPlaying = true
+            if engine.setPaused(false) {
+                isPlaying = true
+            } else {
+                isPlaying = false
+                errorMessage = engine.lastError
+            }
         } else {
             ignoreNextEndEvent = false
             isLoading = false

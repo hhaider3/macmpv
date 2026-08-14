@@ -1,14 +1,25 @@
 import SwiftUI
 
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var player: PlayerModel?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        player?.prepareForTermination()
+    }
+}
+
 @main
 struct MacMPVApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var player = PlayerModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("macmpv", id: "player") {
             ContentView(player: player)
                 .frame(minWidth: 860, minHeight: 560)
                 .onAppear {
+                    appDelegate.player = player
                     player.openLaunchArgumentsIfNeeded()
                 }
                 .onOpenURL { url in
