@@ -114,7 +114,10 @@ final class MPVEngine {
             // Keep subtitles inside the video image, never in the letterbox area,
             // so sub-pos maps predictably onto the displayed video height.
             ("sub-use-margins", "no"),
-            ("sub-ass-use-margins", "no"),
+            // mpv's default margin (34 scaled px) lifts subtitles off the video
+            // bottom; zero it so sub-pos 100 is exactly the video bottom edge,
+            // which the clearance math in PlayerModel assumes.
+            ("sub-margin-y", "0"),
             ("alang", "auto"),
             ("slang", "auto")
         ]
@@ -137,6 +140,10 @@ final class MPVEngine {
             let result = cinewave_mpv_set_option_string(newHandle, name, value)
             if result < 0 {
                 lastError = Self.errorMessage(result, context: "Setting mpv option “\(name)”")
+                // lastError is cleared once playback initializes, so surface the
+                // rejected option here — an unsupported option must not vanish
+                // silently (mpv 0.41 removed sub-ass-use-margins this way).
+                NSLog("macmpv: %@", lastError ?? "")
             }
         }
 
