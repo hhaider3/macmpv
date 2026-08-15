@@ -111,6 +111,10 @@ final class MPVEngine {
             ("msg-level", "all=warn"),
             ("audio-client-name", "macmpv"),
             ("sub-auto", "fuzzy"),
+            // Keep subtitles inside the video image, never in the letterbox area,
+            // so sub-pos maps predictably onto the displayed video height.
+            ("sub-use-margins", "no"),
+            ("sub-ass-use-margins", "no"),
             ("alang", "auto"),
             ("slang", "auto")
         ]
@@ -416,6 +420,14 @@ final class MPVEngine {
         if result < 0 {
             lastError = Self.errorMessage(result, context: "Positioning subtitles")
         }
+    }
+
+    /// Display aspect of the current video (width / height after aspect
+    /// correction), or nil while nothing is loaded.
+    func videoDisplayAspect() -> Double? {
+        guard let handle else { return nil }
+        let aspect = cinewave_mpv_get_double(handle, "video-params/aspect", 0)
+        return aspect > 0 ? aspect : nil
     }
 
     func availableTracks(kind: TrackKind) -> [MediaTrack] {

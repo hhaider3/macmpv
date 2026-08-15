@@ -73,6 +73,9 @@ final class PlayerModel {
     @ObservationIgnored private var rememberedMarkers: [String: PlaybackMarkers] = [:]
     @ObservationIgnored private var persistenceTask: Task<Void, Never>?
     @ObservationIgnored private var controlsOverlayVisible = true
+    /// Height of the bottom controls (including their bottom padding), measured
+    /// by the view that renders them; 0 while the overlay is hidden.
+    @ObservationIgnored private var controlsBottomInset: Double = 0
 
     private let previewSeekInterval: TimeInterval = 0.18
     private static let positionsDefaultsKey = "playback.positions.v1"
@@ -122,6 +125,9 @@ final class PlayerModel {
             existingView.stopPlaybackEngine()
         }
         videoView = view
+        view.onViewGeometryChanged = { [weak self] in
+            self?.updateSubtitlePosition()
+        }
         guard view.startPlaybackEngine() else {
             errorMessage = engine.lastError ?? "The mpv video engine could not start."
             return
@@ -138,6 +144,7 @@ final class PlayerModel {
         guard videoView === view else { return }
         rememberCurrentProgress(saveImmediately: true)
         magnetStream.stop()
+        view.onViewGeometryChanged = nil
         view.stopPlaybackEngine()
         videoView = nil
         // Tear down event-driven callbacks and reset transient UI state.
@@ -155,6 +162,9 @@ final class PlayerModel {
                 self.ignoreNextEndEvent = false
                 self.isLoading = false
                 self.refreshTracks()
+                // Video geometry is known once the file loads; subtitle clearance
+                // depends on the letterboxed video rect.
+                self.updateSubtitlePosition()
                 if let resumePosition = self.pendingResumePosition, resumePosition > 5 {
                     self.engine.seek(absolute: resumePosition)
                     self.position = resumePosition
@@ -588,6 +598,13 @@ final class PlayerModel {
         updateSubtitlePosition()
     }
 
+    func setControlsBottomInset(_ inset: Double) {
+        let clamped = max(0, inset)
+        guard controlsBottomInset != clamped else { return }
+        controlsBottomInset = clamped
+        updateSubtitlePosition()
+    }
+
     func prepareForTermination() {
         persistenceTask?.cancel()
         rememberCurrentProgress(saveImmediately: true)
@@ -633,7 +650,37 @@ final class PlayerModel {
     }
 
     private func updateSubtitlePosition() {
-        engine.setSubtitlePosition(controlsOverlayVisible ? 94 : 100)
+        // Compute the real overlap between the subtitle baseline and the controls
+        // instead of a fixed nudge: the clearance the controls need varies with
+        // window size and control content, and a letterboxed video's subtitles may
+        // already clear the bar. With sub-use-margins off, sub-pos 100 places the
+        // subtitle bottom at the bottom of the displayed video image, and shifts
+        // scale by the displayed video height.
+        guard controlsOverlayVisible,
+              let view = videoView,
+              view.bounds.width > 0, view.bounds.height > 0,
+              let aspect = engine.videoDisplayAspect() else {
+            engine.setSubtitlePosition(100)
+            return
+        }
+
+        let viewSize = view.bounds.size
+        let videoHeight = min(viewSize.height, viewSize.width / aspect)
+        // Gap between the video image's bottom edge and the view's bottom edge;
+        // the subtitle baseline sits there at sub-pos 100.
+        let subtitleBottomFromViewBottom = (viewSize.height - videoHeight) / 2
+        // Small breathing margin above the controls.
+        let requiredClearance = controlsBottomInset + 8
+
+        guard requiredClearance > subtitleBottomFromViewBottom else {
+            // Subtitles already clear the controls; leave them at the video bottom.
+            engine.setSubtitlePosition(100)
+            return
+        }
+
+        let shift = requiredClearance - subtitleBottomFromViewBottom
+        let position = 100 - shift / videoHeight * 100
+        engine.setSubtitlePosition(min(max(position, 0), 150))
     }
 
     private func loadResolvedSource(_ source: URL) {

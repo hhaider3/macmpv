@@ -7,6 +7,9 @@ final class MPVGLView: NSOpenGLView {
     weak var engine: MPVEngine?
     var onSingleClick: (() -> Void)?
     var onDoubleClick: (() -> Void)?
+    /// Fired from reshape() whenever the view's bounds change, so dependents
+    /// (subtitle placement) can recompute against the new video rect.
+    var onViewGeometryChanged: (() -> Void)?
     private weak var observedWindow: NSWindow?
     private var consecutiveNoFrameCount = 0
     private var pendingSingleClick: DispatchWorkItem?
@@ -110,6 +113,7 @@ final class MPVGLView: NSOpenGLView {
     override func reshape() {
         super.reshape()
         needsDisplay = true
+        onViewGeometryChanged?()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -287,6 +291,7 @@ struct VideoSurface: NSViewRepresentable {
         guard let view = nsView as? MPVGLView else { return }
         view.onSingleClick = nil
         view.onDoubleClick = nil
+        view.onViewGeometryChanged = nil
         coordinator.player.detachVideoView(view)
     }
 }

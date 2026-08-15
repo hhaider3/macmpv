@@ -108,6 +108,9 @@ struct ContentView: View {
                     PlayerControls(player: player)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 18)
+                        .background {
+                            ControlsInsetReader(player: player)
+                        }
                 }
 
                 if player.isLoading {
@@ -157,6 +160,9 @@ struct ContentView: View {
                         PlayerControls(player: player)
                             .padding(.horizontal, 28)
                             .padding(.bottom, 22)
+                            .background {
+                                ControlsInsetReader(player: player)
+                            }
                     }
                     .compositingGroup()
                     .transition(.opacity)
@@ -329,6 +335,24 @@ private struct OpenURLSheet: View {
     private func submit() {
         guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         open(value)
+    }
+}
+
+/// Reports the height the bottom controls occupy (including their bottom
+/// padding) so subtitle placement can clear the actual overlap rather than a
+/// fixed nudge. Attached as a background to the padded controls, whose bounds
+/// reach the bottom of the player area.
+private struct ControlsInsetReader: View {
+    let player: PlayerModel
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear { player.setControlsBottomInset(geo.size.height) }
+                .onChange(of: geo.size.height) { _, height in
+                    player.setControlsBottomInset(height)
+                }
+        }
     }
 }
 
