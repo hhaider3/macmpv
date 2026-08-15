@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
@@ -58,6 +59,20 @@ final class PlayerModel {
     var introEndMarker: Double?
     var outroStartMarker: Double?
 
+    struct SubtitleSettings: Codable, Equatable {
+        var scale: Double = 1
+        var outlineSize: Double = 1.65
+        var bold = false
+        var delay: Double = 0
+        var textColorHex: String = "#FFFFFF"
+        var backgroundOpacity: Double = 0
+    }
+
+    var subtitleSettings = SubtitleSettings()
+    /// True while the subtitle settings popover is showing; the fullscreen
+    /// control zone stays visible for as long as it is open.
+    var isSubtitleSettingsPresented = false
+
     @ObservationIgnored let engine = MPVEngine()
     @ObservationIgnored private let probe = MediaProbe()
     @ObservationIgnored private let magnetStream = MagnetStream()
@@ -80,6 +95,7 @@ final class PlayerModel {
     private let previewSeekInterval: TimeInterval = 0.18
     private static let positionsDefaultsKey = "playback.positions.v1"
     private static let markersDefaultsKey = "playback.markers.v1"
+    private static let subtitleSettingsKey = "subtitles.settings.v1"
 
     var currentItem: MediaItem? {
         guard let currentID else { return nil }
@@ -118,6 +134,7 @@ final class PlayerModel {
         volume = storedVolume.map { min(max($0, 0), 100) } ?? 80
         rememberedPositions = Self.load([String: Double].self, key: Self.positionsDefaultsKey) ?? [:]
         rememberedMarkers = Self.load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
+        subtitleSettings = Self.load(SubtitleSettings.self, key: Self.subtitleSettingsKey) ?? SubtitleSettings()
     }
 
     func attachVideoView(_ view: MPVGLView) {
@@ -134,6 +151,7 @@ final class PlayerModel {
         }
         engine.setVolume(volume)
         updateSubtitlePosition()
+        applySubtitleSettings()
         bindEngineCallbacks()
         if currentID != nil {
             loadCurrentItem()
@@ -597,12 +615,57 @@ final class PlayerModel {
         controlsOverlayVisible = visible
         updateSubtitlePosition()
     }
-
     func setControlsBottomInset(_ inset: Double) {
         let clamped = max(0, inset)
         guard controlsBottomInset != clamped else { return }
         controlsBottomInset = clamped
         updateSubtitlePosition()
+    }
+
+    func applySubtitleSettings() {
+        let settings = subtitleSettings
+        engine.setSubtitleScale(settings.scale)
+        engine.setSubtitleOutlineSize(settings.outlineSize)
+        engine.setSubtitleBold(settings.bold)
+        engine.setSubtitleDelay(settings.delay)
+        let (red, green, blue) = Self.rgbComponents(fromHex: settings.textColorHex)
+        engine.setSubtitleTextColor(String(format: "%.3f/%.3f/%.3f/1.0", red, green, blue))
+        engine.setSubtitleBackground(String(format: "0.0/0.0/0.0/%.3f", settings.backgroundOpacity))
+        if let data = try? JSONEncoder().encode(subtitleSettings) {
+            UserDefaults.standard.set(data, forKey: Self.subtitleSettingsKey)
+        }
+    }
+
+    func resetSubtitleSettings() {
+        subtitleSettings = SubtitleSettings()
+        applySubtitleSettings()
+    }
+
+    static func color(fromHex hex: String) -> Color {
+        let (red, green, blue) = rgbComponents(fromHex: hex)
+        return Color(red: red, green: green, blue: blue)
+    }
+
+    static func hex(from color: Color) -> String {
+        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? .white
+        return String(
+            format: "#%02X%02X%02X",
+            Int((nsColor.redComponent * 255).rounded()),
+            Int((nsColor.greenComponent * 255).rounded()),
+            Int((nsColor.blueComponent * 255).rounded())
+        )
+    }
+
+    private static func rgbComponents(fromHex hex: String) -> (Double, Double, Double) {
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        var value: Int64 = 0xFFFFFF
+        Scanner(string: digits).scanHexInt64(&value)
+        let clamped = UInt64(max(0, value))
+        return (
+            Double((clamped >> 16) & 0xFF) / 255,
+            Double((clamped >> 8) & 0xFF) / 255,
+            Double(clamped & 0xFF) / 255
+        )
     }
 
     func prepareForTermination() {

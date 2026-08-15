@@ -437,6 +437,40 @@ final class MPVEngine {
         return aspect > 0 ? aspect : nil
     }
 
+    // MARK: - Subtitle appearance
+
+    func setSubtitleScale(_ scale: Double) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_double(handle, "sub-scale", min(max(scale, 0.25), 3))
+    }
+
+    func setSubtitleOutlineSize(_ size: Double) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_double(handle, "sub-border-size", min(max(size, 0), 10))
+    }
+
+    func setSubtitleBold(_ bold: Bool) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_flag(handle, "sub-bold", bold ? 1 : 0)
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_double(handle, "sub-delay", seconds)
+    }
+
+    /// Colors use mpv's documented `r/g/b/a` form (alpha 0 = transparent,
+    /// 1 = opaque) to avoid the ambiguous hex alpha convention.
+    func setSubtitleTextColor(_ mpvColor: String) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_string(handle, "sub-color", mpvColor)
+    }
+
+    func setSubtitleBackground(_ mpvColor: String) {
+        guard let handle else { return }
+        _ = cinewave_mpv_set_string(handle, "sub-back-color", mpvColor)
+    }
+
     func availableTracks(kind: TrackKind) -> [MediaTrack] {
         guard let handle else { return [] }
         let count = Int(cinewave_mpv_get_int64(handle, "track-list/count", 0))

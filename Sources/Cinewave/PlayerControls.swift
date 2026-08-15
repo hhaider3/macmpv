@@ -55,6 +55,7 @@ struct PlayerControls: View {
                     }
 
                     subtitleMenu
+                    subtitleSettingsButton
                     audioMenu
                     markerMenu
                 }
@@ -208,6 +209,11 @@ struct PlayerControls: View {
             Button("Open Subtitle File…", systemImage: "folder") {
                 player.openSubtitlePanel()
             }
+
+            Divider()
+            Button("Subtitle Settings…") {
+                player.isSubtitleSettingsPresented = true
+            }
         } label: {
             GlassMenuIcon(symbol: "captions.bubble")
         }
@@ -215,6 +221,16 @@ struct PlayerControls: View {
         .fixedSize()
         .disabled(!player.hasMedia)
         .help("Choose subtitles")
+    }
+
+    private var subtitleSettingsButton: some View {
+        ControlButton(symbol: "textformat", help: "Subtitle settings") {
+            player.isSubtitleSettingsPresented.toggle()
+        }
+        .disabled(!player.hasMedia)
+        .popover(isPresented: $player.isSubtitleSettingsPresented, arrowEdge: .bottom) {
+            SubtitleSettingsView(player: player)
+        }
     }
 
     private var audioMenu: some View {
@@ -282,6 +298,96 @@ struct PlayerControls: View {
 
     private func speedLabel(_ speed: Double) -> String {
         speed == speed.rounded() ? "\(Int(speed))×" : "\(speed.formatted())×"
+    }
+}
+
+/// Non-modal subtitle appearance controls; changes apply live to mpv and
+/// persist via PlayerModel.
+private struct SubtitleSettingsView: View {
+    @Bindable var player: PlayerModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Text("Subtitles")
+                .font(.system(size: 13, weight: .semibold))
+
+            sliderRow("Size", value: "\(Int((player.subtitleSettings.scale * 100).rounded()))%") {
+                Slider(value: $player.subtitleSettings.scale, in: 0.5...2.5, step: 0.05)
+            }
+
+            sliderRow("Outline", value: String(format: "%.1f", player.subtitleSettings.outlineSize)) {
+                Slider(value: $player.subtitleSettings.outlineSize, in: 0...8, step: 0.1)
+            }
+
+            sliderRow(
+                "Background",
+                value: "\(Int((player.subtitleSettings.backgroundOpacity * 100).rounded()))%"
+            ) {
+                Slider(value: $player.subtitleSettings.backgroundOpacity, in: 0...1)
+            }
+
+            HStack {
+                Toggle("Bold", isOn: $player.subtitleSettings.bold)
+                Spacer()
+                Text("Text Color")
+                    .font(.system(size: 11, weight: .medium))
+                ColorPicker(
+                    "",
+                    selection: Binding(
+                        get: { PlayerModel.color(fromHex: player.subtitleSettings.textColorHex) },
+                        set: { player.subtitleSettings.textColorHex = PlayerModel.hex(from: $0) }
+                    ),
+                    supportsOpacity: false
+                )
+                .labelsHidden()
+                .frame(width: 42)
+            }
+
+            Divider()
+
+            HStack {
+                Text("Delay")
+                    .font(.system(size: 11, weight: .medium))
+                Slider(value: $player.subtitleSettings.delay, in: -10...10, step: 0.1)
+                Text(String(format: "%+.1fs", player.subtitleSettings.delay))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
+
+            HStack {
+                Spacer()
+                Button("Reset All") {
+                    player.resetSubtitleSettings()
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 320)
+        .controlSize(.small)
+        .onChange(of: player.subtitleSettings) {
+            player.applySubtitleSettings()
+        }
+    }
+
+    private func sliderRow(
+        _ label: String,
+        value: String,
+        @ViewBuilder control: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text(value)
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            control()
+        }
     }
 }
 

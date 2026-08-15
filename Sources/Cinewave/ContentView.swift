@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var isFullscreen = false
     @State private var isFullscreenControlZoneHovered = false
 
+    private let fullscreenControlZoneHeight: CGFloat = 160
+
     var body: some View {
         ZStack {
             playerArea
@@ -70,6 +72,16 @@ struct ContentView: View {
 
     private func updateSubtitleControlInset() {
         player.setControlsOverlayVisible(!isFullscreen || isFullscreenControlZoneHovered)
+    }
+
+    private func isMouseInFullscreenControlZone() -> Bool {
+        guard let window = NSApp.keyWindow else { return false }
+        let mouse = NSEvent.mouseLocation
+        let frame = window.frame
+        return mouse.x >= frame.minX
+            && mouse.x <= frame.maxX
+            && mouse.y >= frame.minY
+            && mouse.y <= frame.minY + fullscreenControlZoneHeight
     }
 
     private var playerArea: some View {
@@ -168,11 +180,22 @@ struct ContentView: View {
                     .transition(.opacity)
                 }
             }
-            .frame(height: 160)
+            .frame(height: fullscreenControlZoneHeight)
             .contentShape(Rectangle())
             .onHover { hovering in
+                // Moving into the settings popover reports a zone exit; keep the
+                // bar (and the popover anchored to it) alive while it is open.
+                let effective = hovering || player.isSubtitleSettingsPresented
                 withAnimation(.easeOut(duration: 0.2)) {
-                    isFullscreenControlZoneHovered = hovering
+                    isFullscreenControlZoneHovered = effective
+                }
+            }
+            .onChange(of: player.isSubtitleSettingsPresented) { _, presented in
+                guard !presented else { return }
+                // The popover swallowed hover events while open, so the zone state
+                // may be stale; re-evaluate it from the actual cursor position.
+                withAnimation(.easeOut(duration: 0.2)) {
+                    isFullscreenControlZoneHovered = isMouseInFullscreenControlZone()
                 }
             }
         }
