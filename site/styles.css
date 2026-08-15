@@ -344,10 +344,13 @@ main {
     margin: clamp(44px, 7vw, 70px) 0 0;
 }
 
+/* Rounded frame, square screenshot: the radius must equal the padding so the
+ * rounded border meets the image's square corners exactly — no clipping, no
+ * corners poking past the curve. */
 .shot-frame {
     border: 1px solid var(--border-strong);
-    border-radius: 22px;
-    padding: 10px;
+    border-radius: 12px;
+    padding: 12px;
     background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -358,7 +361,6 @@ main {
     display: block;
     width: 100%;
     height: auto;
-    border-radius: 14px;
 }
 
 .hero-shot figcaption {
