@@ -577,6 +577,11 @@ final class PlayerModel {
         errorMessage = nil
     }
 
+    func reportVideoSurfaceFailure() {
+        isLoading = false
+        errorMessage = "No OpenGL surface is available, so video playback cannot start on this system."
+    }
+
     func setControlsOverlayVisible(_ visible: Bool) {
         guard controlsOverlayVisible != visible else { return }
         controlsOverlayVisible = visible
@@ -591,7 +596,14 @@ final class PlayerModel {
     }
 
     private func loadCurrentItem() {
-        guard engine.isReady, let currentItem else { return }
+        guard let currentItem else { return }
+        guard engine.isReady else {
+            // The engine never started (missing renderer, failed init). Surface the
+            // failure instead of leaving the loading spinner up forever.
+            isLoading = false
+            errorMessage = engine.lastError ?? "The video engine is unavailable on this system."
+            return
+        }
 
         if MediaSupport.isTorrentSource(currentItem.url) {
             let itemID = currentItem.id

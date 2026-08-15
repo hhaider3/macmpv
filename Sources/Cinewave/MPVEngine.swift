@@ -161,21 +161,24 @@ final class MPVEngine {
     }
 
     func shutdown() {
-        let wasRunning = shouldKeepRunning
         stopObserving()
-        // Synchronize with the dedicated event queue before destroying the handle.
-        // libmpv forbids concurrent calls during mpv_terminate_destroy; the loop may
-        // still be blocked in mpv_wait_event, so wake it and wait for the queue to drain.
-        if wasRunning {
-            // Enqueue a barrier after the running runEventLoop block. The barrier
-            // will not execute until runEventLoop has observed shouldKeepRunning == false,
-            // returned from mpv_wait_event (woken above), and exited.
-            let barrier = DispatchSemaphore(value: 0)
-            eventQueue.async { barrier.signal() }
-            // mpv_wakeup guarantees the blocking wait returns. Do not destroy the
-            // handle until the queue confirms that no client call is still using it.
-            barrier.wait()
+        // Always drain the event queue before destroying the handle, even when the
+        // loop already stopped on its own: a queued block may still be unwinding,
+        // and libmpv forbids any client call once mpv_terminate_destroy begins.
+        // Enqueueing the barrier unconditionally also lets it reset bgSnapshot /
+        // bgLastEmitted on the event queue, so every mutation of that pair stays
+        // serialized off the main actor.
+        let barrier = DispatchSemaphore(value: 0)
+        eventQueue.async { [weak self] in
+            if let self {
+                self.bgLastEmitted = nil
+                self.bgSnapshot = Snapshot(position: 0, duration: 0, paused: true, muted: false, volume: 80, speed: 1, eofReached: false, title: nil)
+            }
+            barrier.signal()
         }
+        // stopObserving woke the loop with mpv_wakeup, so a queued runEventLoop
+        // returns promptly; the queue is empty once the barrier runs.
+        barrier.wait()
         if let renderContext {
             // Clear update callback before freeing.
             cinewave_mpv_render_set_update_callback(renderContext, nil, nil)
@@ -186,8 +189,6 @@ final class MPVEngine {
             cinewave_mpv_destroy(handle)
             self.handle = nil
         }
-        bgLastEmitted = nil
-        bgSnapshot = Snapshot(position: 0, duration: 0, paused: true, muted: false, volume: 80, speed: 1, eofReached: false, title: nil)
     }
 
     // MARK: - Observe + event loop
@@ -215,7 +216,9 @@ final class MPVEngine {
         // mutations are serialized on eventQueue (only background thread touches them after this point).
         let handleBits = UInt(bitPattern: handle)
         eventQueue.async { [weak self] in
-            guard let self else { return }
+            // shutdown() may already have run before this queued block started;
+            // never touch a handle the shutdown barrier may be destroying.
+            guard let self, self.shouldKeepRunning else { return }
             guard let handle = OpaquePointer(bitPattern: handleBits) else { return }
             self.bgSnapshot = Snapshot(
                 position: cinewave_mpv_get_double(handle, "time-pos", 0),

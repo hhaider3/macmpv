@@ -19,9 +19,17 @@ final class MPVGLView: NSOpenGLView {
     private var fallbackTimer: Timer?
 
     init?(configuredForMPV: Bool) {
-        let attributes: [NSOpenGLPixelFormatAttribute] = [
-            UInt32(NSOpenGLPFAOpenGLProfile),
-            UInt32(NSOpenGLProfileVersion3_2Core),
+        guard let pixelFormat = Self.makePixelFormat() else { return nil }
+        super.init(frame: .zero, pixelFormat: pixelFormat)
+        wantsBestResolutionOpenGLSurface = true
+    }
+
+    /// Prefer an accelerated GL 3.2 context. VMs and headless sessions may only
+    /// expose a software renderer, so degrade the attribute list instead of failing
+    /// outright; the minimal double-buffered format is supported by every renderer.
+    private static func makePixelFormat() -> NSOpenGLPixelFormat? {
+        let accelerated: [NSOpenGLPixelFormatAttribute] = [
+            UInt32(NSOpenGLPFAOpenGLProfile), UInt32(NSOpenGLProfileVersion3_2Core),
             UInt32(NSOpenGLPFAAccelerated),
             UInt32(NSOpenGLPFADoubleBuffer),
             UInt32(NSOpenGLPFAColorSize), 24,
@@ -29,9 +37,20 @@ final class MPVGLView: NSOpenGLView {
             UInt32(NSOpenGLPFAAllowOfflineRenderers),
             0
         ]
-        let pixelFormat = NSOpenGLPixelFormat(attributes: attributes)
-        super.init(frame: .zero, pixelFormat: pixelFormat)
-        wantsBestResolutionOpenGLSurface = true
+        let software: [NSOpenGLPixelFormatAttribute] = [
+            UInt32(NSOpenGLPFAOpenGLProfile), UInt32(NSOpenGLProfileVersion3_2Core),
+            UInt32(NSOpenGLPFADoubleBuffer),
+            UInt32(NSOpenGLPFAColorSize), 24,
+            UInt32(NSOpenGLPFAAlphaSize), 8,
+            0
+        ]
+        let minimal: [NSOpenGLPixelFormatAttribute] = [
+            UInt32(NSOpenGLPFADoubleBuffer),
+            0
+        ]
+        return NSOpenGLPixelFormat(attributes: accelerated)
+            ?? NSOpenGLPixelFormat(attributes: software)
+            ?? NSOpenGLPixelFormat(attributes: minimal)
     }
 
     @available(*, unavailable)
@@ -243,9 +262,12 @@ struct VideoSurface: NSViewRepresentable {
         Coordinator(player: player)
     }
 
-    func makeNSView(context: Context) -> MPVGLView {
+    func makeNSView(context: Context) -> NSView {
         guard let view = MPVGLView(configuredForMPV: true) else {
-            fatalError("macmpv could not create an accelerated OpenGL surface.")
+            // No OpenGL pixel format exists at all (no renderer on this system).
+            // Keep the app running and surface the failure in-app instead of crashing.
+            player.reportVideoSurfaceFailure()
+            return UnsupportedSurfaceView()
         }
         view.engine = player.engine
         view.onSingleClick = { [weak player] in
@@ -259,11 +281,42 @@ struct VideoSurface: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: MPVGLView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {}
 
-    static func dismantleNSView(_ nsView: MPVGLView, coordinator: Coordinator) {
-        nsView.onSingleClick = nil
-        nsView.onDoubleClick = nil
-        coordinator.player.detachVideoView(nsView)
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        guard let view = nsView as? MPVGLView else { return }
+        view.onSingleClick = nil
+        view.onDoubleClick = nil
+        coordinator.player.detachVideoView(view)
+    }
+}
+
+/// Placeholder shown when no OpenGL surface can be created at all — playback is
+/// impossible, but the app must stay alive and explain why.
+private final class UnsupportedSurfaceView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(red: 0.018, green: 0.022, blue: 0.035, alpha: 1).cgColor
+
+        let label = NSTextField(
+            labelWithString: "Video playback is unavailable: no OpenGL renderer was found on this system."
+        )
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 20),
+            trailingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 20)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

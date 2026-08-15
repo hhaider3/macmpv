@@ -1,5 +1,15 @@
 import Foundation
 
+// Per-stream scratch directory prefix inside the system temp folder. Directory
+// names continue with "<pid>-<uuid>" so cleanup can attribute them to a process.
+private let magnetDirectoryPrefix = "macmpv-magnet-"
+
+// Nonisolated async functions run on the global concurrent executor (SE-0338),
+// which keeps the 150 ms capture-file poll and log reads off the main actor.
+private func readFileData(at url: URL) async -> Data? {
+    try? Data(contentsOf: url)
+}
+
 @MainActor
 final class MagnetStream {
     enum StreamError: LocalizedError {
@@ -26,6 +36,53 @@ final class MagnetStream {
     private var streamWaitTask: Task<Void, Never>?
     private var temporaryDirectory: URL?
 
+    init() {
+        // stop() removes the scratch directory on ordinary exits, but a hard crash
+        // leaves it behind with a partial download. Sweep leftovers at startup.
+        // The sweep races this run's first stream (it is asynchronous) and may run
+        // alongside other macmpv instances, so a directory is removed only when it
+        // provably belongs to a dead process — never merely because it matches.
+        Task.detached(priority: .utility) {
+            Self.removeStaleDownloadDirectories()
+        }
+    }
+
+    private nonisolated static func removeStaleDownloadDirectories() {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: fileManager.temporaryDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        for url in contents {
+            let name = url.lastPathComponent
+            guard name.hasPrefix(magnetDirectoryPrefix),
+                  isStaleDirectory(url, name: name, currentPID: currentPID) else { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    /// A directory is stale only when its owner can be proven gone: the name carries
+    /// the creating process's PID (…) and that PID no longer exists. Live owners, our
+    /// own PID (this run's active stream), and unparseable names are left alone; the
+    /// last group falls back to a conservative age threshold so leftovers from
+    /// pre-PID app versions still get cleaned eventually.
+    private nonisolated static func isStaleDirectory(_ url: URL, name: String, currentPID: pid_t) -> Bool {
+        let remainder = name.dropFirst(magnetDirectoryPrefix.count)
+        if let pidText = remainder.split(separator: "-").first, let ownerPID = Int32(pidText), ownerPID > 0 {
+            if ownerPID == currentPID { return false }
+            // kill(pid, 0) probes existence: 0 or EPERM (another user's live process)
+            // means alive; ESRCH means the owner is gone.
+            return kill(ownerPID, 0) == -1 && errno == ESRCH
+        }
+
+        guard let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else {
+            return false
+        }
+        return Date().timeIntervalSince(modified) > 24 * 3600
+    }
+
     func start(
         from source: URL,
         completion: @escaping @MainActor (Result<URL, StreamError>) -> Void
@@ -46,7 +103,10 @@ final class MagnetStream {
         }
 
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("macmpv-magnet-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                magnetDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+                isDirectory: true
+            )
         let captureURL = directory.appendingPathComponent("stream-url")
         let shimURL = directory.appendingPathComponent("mpv")
         let logURL = directory.appendingPathComponent("webtorrent.log")
@@ -116,7 +176,7 @@ final class MagnetStream {
             let deadline = ContinuousClock.now + .seconds(90)
 
             while !Task.isCancelled, ContinuousClock.now < deadline {
-                if let data = try? Data(contentsOf: captureURL),
+                if let data = await readFileData(at: captureURL),
                    let rawValue = String(data: data, encoding: .utf8),
                    let streamURL = URL(
                     dataRepresentation: Data(
@@ -134,7 +194,7 @@ final class MagnetStream {
                     let detail = process.terminationStatus == 0
                         ? "The torrent did not expose a playable media file."
                         : "The helper exited with status \(process.terminationStatus)."
-                    let message = Self.appendingLogTail(detail, logURL: logURL)
+                    let message = await Self.appendingLogTail(detail, logURL: logURL)
                     self.stop()
                     completion(.failure(.helperFailed(message)))
                     return
@@ -296,8 +356,8 @@ final class MagnetStream {
         try Data(bootstrap.utf8).write(to: bootstrapURL, options: .atomic)
     }
 
-    private static func appendingLogTail(_ message: String, logURL: URL) -> String {
-        guard let data = try? Data(contentsOf: logURL),
+    private static func appendingLogTail(_ message: String, logURL: URL) async -> String {
+        guard let data = await readFileData(at: logURL),
               let text = String(data: data, encoding: .utf8) else { return message }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return message }
