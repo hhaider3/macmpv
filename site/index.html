@@ -7,10 +7,31 @@
     <meta name="description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Plays everything, streams torrents, and gets out of the way.">
     <meta property="og:title" content="macmpv — a native macOS video player">
     <meta property="og:description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine.">
-    <meta property="og:image" content="https://raw.githubusercontent.com/hhaider3/macmpv/main/docs/macmpv-player.png">
+    <meta property="og:image" content="https://macmpv.pages.dev/assets/macmpv-player.jpg">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="macmpv">
+    <meta property="og:url" content="https://macmpv.pages.dev/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="macmpv — a native macOS video player">
+    <meta name="twitter:description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine.">
+    <meta name="twitter:image" content="https://macmpv.pages.dev/assets/macmpv-player.jpg">
+    <link rel="canonical" href="https://macmpv.pages.dev/">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "macmpv",
+        "url": "https://macmpv.pages.dev/",
+        "operatingSystem": "macOS 26",
+        "applicationCategory": "MultimediaApplication",
+        "description": "A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Plays every format, streams torrents, and gets out of the way.",
+        "image": "https://macmpv.pages.dev/assets/macmpv-player.jpg",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
+    </script>
     <meta name="theme-color" content="#05070c">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1020'/%3E%3Cpath d='M25 19l22 13-22 13z' fill='%23e8ecff'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
     <div class="backdrop" aria-hidden="true">
@@ -74,9 +95,10 @@
 
             <figure class="hero-shot reveal">
                 <div class="shot-frame">
-                    <img src="assets/macmpv-player.png"
+                    <img src="assets/macmpv-player.jpg"
                          alt="macmpv playing a 4K video with playback controls visible"
-                         width="2216" height="1364" loading="lazy" decoding="async">
+                         width="2016" height="1289"
+                         decoding="async" fetchpriority="high">
                 </div>
                 <figcaption>mpv under the hood, SwiftUI on top.</figcaption>
             </figure>
