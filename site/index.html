@@ -10,7 +10,7 @@
     <meta property="og:image" content="https://raw.githubusercontent.com/hhaider3/macmpv/main/docs/macmpv-player.png">
     <meta name="theme-color" content="#05070c">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1020'/%3E%3Cpath d='M25 19l22 13-22 13z' fill='%23e8ecff'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
     <div class="backdrop" aria-hidden="true">
@@ -47,16 +47,28 @@
                 and gets out of the way.
             </p>
             <div class="hero-actions reveal">
-                <a class="button button-primary" id="download-button"
-                   href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64.dmg"
-                   download>
-                    <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v8.69l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4A.75.75 0 1 1 3.53 6.72l2.72 2.72V.75A.75.75 0 0 1 8 0zM1.5 12.5a.75.75 0 0 1 .75.75v1.5h11.5v-1.5a.75.75 0 0 1 1.5 0v2.25a.75.75 0 0 1-.75.75H1.5a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 .75-.75z"/></svg>
-                    Download for macOS
-                </a>
+                <div class="download-menu">
+                    <button class="button button-primary" id="download-button" type="button"
+                            aria-haspopup="menu" aria-expanded="false">
+                        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v8.69l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4A.75.75 0 1 1 3.53 6.72l2.72 2.72V.75A.75.75 0 0 1 8 0zM1.5 12.5a.75.75 0 0 1 .75.75v1.5h11.5v-1.5a.75.75 0 0 1 1.5 0v2.25a.75.75 0 0 1-.75.75H1.5a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 .75-.75z"/></svg>
+                        Download for macOS
+                        <svg class="chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M3.22 5.47a.75.75 0 0 1 1.06 0L8 9.19l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.53a.75.75 0 0 1 0-1.06z"/></svg>
+                    </button>
+                    <div class="download-options" role="menu" aria-label="Choose a build">
+                        <a role="menuitem" href="https://github.com/hhaider3/macmpv/releases/download/v1.0/macmpv-1.0-arm64.dmg" download>
+                            <span class="option-name">Standard</span>
+                            <span class="option-meta">29 MB · add torrents later with npm</span>
+                        </a>
+                        <a role="menuitem" href="https://github.com/hhaider3/macmpv/releases/download/v1.0t/macmpv-1.0-arm64-torrents.dmg" download>
+                            <span class="option-name">+ Torrents</span>
+                            <span class="option-meta">122 MB · WebTorrent bundled, zero setup</span>
+                        </a>
+                    </div>
+                </div>
                 <a class="button button-ghost" href="https://github.com/hhaider3/macmpv" rel="noopener">View source</a>
             </div>
             <p class="hero-note reveal">
-                macOS 26 or newer · Apple Silicon · 29&nbsp;MB ·
+                macOS 26 or newer · Apple Silicon ·
                 <a href="https://github.com/hhaider3/macmpv/releases" rel="noopener">All releases</a>
             </p>
 
@@ -172,17 +184,24 @@
             </aside>
 
             <div class="download-meta reveal">
-                <a class="button button-primary" href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64.dmg" download>Download dmg</a>
+                <a class="button button-primary" href="https://github.com/hhaider3/macmpv/releases/download/v1.0/macmpv-1.0-arm64.dmg" download>
+                    Download dmg
+                    <span class="button-sub">29 MB</span>
+                </a>
+                <a class="button button-ghost" href="https://github.com/hhaider3/macmpv/releases/download/v1.0t/macmpv-1.0-arm64-torrents.dmg" download>
+                    Download + Torrents
+                    <span class="button-sub">122 MB · WebTorrent bundled</span>
+                </a>
                 <div class="checksum">
-                    <span class="checksum-label">SHA-256</span>
+                    <span class="checksum-label">SHA-256 (standard)</span>
                     <code>cbc59a25a032a7d7b11f10d791dd1382db1d919730e7f9a8117ec89df89be145</code>
                 </div>
             </div>
 
             <p class="variant-note reveal">
-                Watch torrents with zero setup? Grab the
-                <a href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64-torrents.dmg" download><strong>macmpv + Torrents</strong></a>
-                build (122&nbsp;MB) — WebTorrent bundled, nothing else to install.
+                The <strong>+ Torrents</strong> build plays magnet links with zero setup — WebTorrent
+                is bundled. The standard build is smaller; add torrents later with
+                <code>npm install -g webtorrent-cli</code> if you ever need them.
             </p>
         </section>
 
@@ -220,6 +239,6 @@
         </p>
     </footer>
 
-    <script src="script.js" defer></script>
+    <script src="script.js?v=2" defer></script>
 </body>
 </html>

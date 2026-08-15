@@ -176,11 +176,12 @@ dependencies, plain HTML/CSS/JS). It is ready for Cloudflare Pages:
 - Build command: *(empty)*
 - Output directory: `site`
 
-Download buttons point at GitHub Releases (`releases/latest/download/...`) —
-Cloudflare Pages caps static assets at 25 MB and the dmg is ~29 MB, so the
-binary must be hosted on GitHub Releases (or R2), not in the Pages project.
-When you cut a new release, update the dmg filename, size, and SHA-256 in
-`site/index.html` (grep for `macmpv-1.0-arm64.dmg`).
+Download buttons point at GitHub Releases, each pinned to its exact tag
+(`releases/download/v1.0/...` and `releases/download/v1.0t/...` for the
+"+ Torrents" build) — Cloudflare Pages caps static assets at 25 MB and the dmg
+is ~29 MB, so binaries must be hosted on GitHub Releases (or R2), not in the
+Pages project. When you cut a new release, update the tag, dmg filename, size,
+and SHA-256 in `site/index.html` (grep for `macmpv-1.0`).
 
 ## Troubleshooting
 
