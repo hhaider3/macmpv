@@ -3,6 +3,8 @@
 macmpv is a native macOS video player built with SwiftUI. It embeds mpv for
 playback and uses ffprobe (from FFmpeg) to read media metadata.
 
+**Website:** <https://macmpv.pages.dev> — download the latest release.
+
 ![macmpv playing a 4K video with playback controls visible](docs/macmpv-player.png)
 
 ## Features
@@ -170,7 +172,8 @@ xcrun stapler staple dist/macmpv-*.dmg
 ## Website
 
 A static marketing/download site lives in `site/` (dark glass theme, no
-dependencies, plain HTML/CSS/JS). It is ready for Cloudflare Pages:
+dependencies, plain HTML/CSS/JS), deployed at <https://macmpv.pages.dev>.
+It is ready for Cloudflare Pages:
 
 - Framework preset: **None**
 - Build command: *(empty)*

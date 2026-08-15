@@ -603,4 +603,10 @@ main {
         white-space: normal;
         word-break: break-all;
     }
+    /* Thinner screenshot frame; radius stays equal to padding so the rounded
+       border still meets the square image corners exactly. */
+    .shot-frame {
+        padding: 6px;
+        border-radius: 6px;
+    }
 }
