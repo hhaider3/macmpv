@@ -14,6 +14,8 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
 - Per-file playback resume and saved intro/outro markers
 - External subtitle loading and selectable audio/subtitle track menus
+- Configurable subtitle appearance: size, outline, text color, background, bold, and sync delay
+- Subtitles that move clear of the controls bar based on the measured overlap, in windowed and full-screen playback
 - PNG screenshots through the player controls or keyboard
 - ffprobe metadata for duration, resolution, frame rate, codecs, and format
 - Full-screen playback and native macOS keyboard commands
@@ -61,7 +63,7 @@ Anything [mpv](https://mpv.io/) / [FFmpeg](https://ffmpeg.org/) can play. Common
 
 `mp4`, `m4v`, `mov`, `mkv`, `mka`, `webm`, `avi`, `flv`, `ts`, `mts`, `m2ts`, `mpeg`, `mpg`, `vob`, `wmv`, `asf`, `divx`, `f4v`, `rm`, `rmvb`, `3gp`, `3g2`, `ogv`, `ogm`, `ogg`, `oga`, `opus`, `mp3`, `m4a`, `aac`, `ac3`, `dts`, `flac`, `alac`, `ape`, `aiff`, `caf`, `wav`, `wma` plus `m3u`/`m3u8` playlists.
 
-Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. Torrent playback uses WebTorrent CLI, selects the torrent's largest file, and streams it to the embedded player over localhost. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
+Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. Torrent playback uses WebTorrent CLI, selects the torrent's largest file, and streams it to the embedded player over localhost. Streamed data lives in a per-run temp directory tagged with the app's PID; it is removed on exit, and leftovers from crashed runs are swept on the next launch. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
 
 ## Keyboard Shortcuts
 
@@ -149,11 +151,18 @@ pkg-config --modversion mpv
 
 Ensure `mpv` still installed: `brew list mpv` and `otool -L dist/macmpv.app/Contents/MacOS/macmpv` should show `/opt/homebrew/opt/mpv/lib/libmpv.2.dylib`.
 
+**No video in a VM or headless session**
+
+macmpv prefers an accelerated OpenGL 3.2 context and falls back to a software
+renderer when that is all the system offers. If no OpenGL surface can be created
+at all, the player shows an in-app error instead of crashing; playback is not
+possible in that configuration.
+
 ## Architecture
 
 macmpv wraps `libmpv` via `Sources/CMPV` (pkg-config `mpv`) and renders with `MPVEngine` / `MPVGLView` (`Sources/Cinewave/MPVEngine.swift`, `Sources/Cinewave/VideoSurface.swift`). Metadata is probed out-of-process with `ffprobe` (`Sources/Cinewave/MediaProbe.swift`).
 
-Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`.
+Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`. Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
 ## Credits
 
