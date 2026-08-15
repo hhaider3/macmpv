@@ -123,6 +123,38 @@ zsh Scripts/build-app.sh release
 open dist/macmpv.app
 ```
 
+## Distribute (dmg)
+
+```sh
+make dmg
+```
+
+`Scripts/package-dmg.sh` bundles `libmpv`, its full Homebrew dependency closure,
+and `ffprobe` inside the app (`Contents/Frameworks` + `Contents/MacOS/ffprobe`),
+rewrites all load commands to `@rpath`, re-signs, and packs
+`dist/macmpv-<version>-<arch>.dmg`. The bundled app runs without Homebrew
+installed, on the same architecture and macOS 26 or newer. WebTorrent CLI stays
+optional and external — torrent playback still requires it on the target Mac.
+
+The dmg is ad-hoc signed. On another Mac, Gatekeeper will challenge the first
+launch because the download has no verified developer signature: open
+**System Settings → Privacy & Security** and click **Open Anyway**, or clear the
+quarantine attribute:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/macmpv.app
+```
+
+For friction-free distribution, sign with a Developer ID certificate and
+notarize before distributing:
+
+```sh
+export MACMPV_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+make dmg
+xcrun notarytool submit dist/macmpv-*.dmg --keychain-profile <profile> --wait
+xcrun stapler staple dist/macmpv-*.dmg
+```
+
 ## Troubleshooting
 
 **`sandbox-exec: sandbox_apply: Operation not permitted`**
