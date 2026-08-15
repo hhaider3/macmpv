@@ -52,9 +52,11 @@ final class MagnetStream {
         let logURL = directory.appendingPathComponent("webtorrent.log")
         let loaderURL = directory.appendingPathComponent("webtorrent-loader.mjs")
         let bootstrapURL = directory.appendingPathComponent("webtorrent-bootstrap.mjs")
+        let downloadURL = directory.appendingPathComponent("download", isDirectory: true)
 
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: downloadURL, withIntermediateDirectories: true)
             try Self.writeCaptureShim(to: shimURL)
             try Self.writeCompatibilityLoader(to: loaderURL, bootstrapURL: bootstrapURL)
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
@@ -70,6 +72,8 @@ final class MagnetStream {
             "--mpv",
             "--not-on-top",
             "--no-quit",
+            "--out",
+            downloadURL.path,
             "--quiet"
         ]
         var environment = ProcessInfo.processInfo.environment
@@ -149,15 +153,25 @@ final class MagnetStream {
         streamWaitTask?.cancel()
         streamWaitTask = nil
 
-        if let process, process.isRunning {
-            process.terminate()
-        }
+        let processToStop = process
+        let directoryToRemove = temporaryDirectory
         process = nil
-
-        if let temporaryDirectory {
-            try? FileManager.default.removeItem(at: temporaryDirectory)
-        }
         temporaryDirectory = nil
+
+        if let processToStop, processToStop.isRunning {
+            processToStop.terminationHandler = { _ in
+                guard let directoryToRemove else { return }
+                try? FileManager.default.removeItem(at: directoryToRemove)
+            }
+            processToStop.terminate()
+        }
+
+        // Unlink cached pieces immediately so quitting the app does not leave a
+        // completed or partial torrent behind. Retry after process termination in
+        // case WebTorrent was creating a file at the same moment.
+        if let directoryToRemove {
+            try? FileManager.default.removeItem(at: directoryToRemove)
+        }
     }
 
     private static func torrentIdentifier(from source: URL) throws -> String {
