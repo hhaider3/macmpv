@@ -1,4 +1,4 @@
-.PHONY: build run app dmg clean
+.PHONY: build run app dmg dmg-torrents clean
 
 build:
 	swift build || swift build --disable-sandbox
@@ -11,6 +11,9 @@ app:
 
 dmg:
 	zsh Scripts/package-dmg.sh
+
+dmg-torrents:
+	zsh Scripts/package-dmg.sh torrents
 
 clean:
 	swift package clean

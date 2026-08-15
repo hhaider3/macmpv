@@ -97,7 +97,7 @@ final class MagnetStream {
             return
         }
 
-        guard let executable = Self.webtorrentExecutable else {
+        guard let helper = Self.resolveHelper() else {
             completion(.failure(.helperUnavailable))
             return
         }
@@ -126,8 +126,8 @@ final class MagnetStream {
         }
 
         let process = Process()
-        process.executableURL = executable
-        process.arguments = [
+        process.executableURL = helper.executableURL
+        process.arguments = helper.prefixArguments + [
             torrentIdentifier,
             "--mpv",
             "--not-on-top",
@@ -138,7 +138,7 @@ final class MagnetStream {
         ]
         var environment = ProcessInfo.processInfo.environment
         let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
-        let helperDirectory = executable.deletingLastPathComponent().path
+        let helperDirectory = helper.executableURL.deletingLastPathComponent().path
         environment["PATH"] = [
             directory.path,
             helperDirectory,
@@ -363,6 +363,33 @@ final class MagnetStream {
         guard !trimmed.isEmpty else { return message }
         let tail = trimmed.count > 400 ? String(trimmed.suffix(400)) : trimmed
         return "\(message)\n\(tail)"
+    }
+
+    /// How to launch WebTorrent CLI: either a bundled node runtime plus the CLI
+    /// script (the "+ Torrents" dmg variant), or a plain `webtorrent` executable.
+    private struct Helper {
+        let executableURL: URL
+        let prefixArguments: [String]
+    }
+
+    private static func resolveHelper() -> Helper? {
+        let fileManager = FileManager.default
+
+        // 1. Runtime bundled inside the app bundle ("+ Torrents" dmg variant):
+        //    node launcher in Contents/Helpers, the npm tree in Contents/Resources.
+        let nodeURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/webtorrent-node")
+        let cliURL = Bundle.main.resourceURL?
+            .appendingPathComponent("webtorrent-cli/bin/cmd.js")
+        if let cliURL,
+           fileManager.isExecutableFile(atPath: nodeURL.path),
+           fileManager.fileExists(atPath: cliURL.path) {
+            return Helper(executableURL: nodeURL, prefixArguments: [cliURL.path])
+        }
+
+        // 2. Installed CLI (MACMPV_WEBTORRENT override, PATH, Homebrew locations).
+        guard let executable = webtorrentExecutable else { return nil }
+        return Helper(executableURL: executable, prefixArguments: [])
     }
 
     private static var webtorrentExecutable: URL? {

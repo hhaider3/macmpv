@@ -136,6 +136,18 @@ rewrites all load commands to `@rpath`, re-signs, and packs
 installed, on the same architecture and macOS 26 or newer. WebTorrent CLI stays
 optional and external — torrent playback still requires it on the target Mac.
 
+A "+ Torrents" variant also bundles a node runtime and WebTorrent CLI
+(~120 MB vs 29 MB) so torrent playback works with nothing installed:
+
+```sh
+make dmg-torrents   # dist/macmpv-<version>-<arch>-torrents.dmg
+```
+
+The npm tree is pruned (docs, type definitions, foreign-platform native
+prebuilds) and lives in `Contents/Resources`, where codesign seals it as data;
+the node launcher sits in `Contents/Helpers`. The app prefers the bundled
+runtime automatically when present, and falls back to an installed CLI.
+
 The dmg is ad-hoc signed. On another Mac, Gatekeeper will challenge the first
 launch because the download has no verified developer signature: open
 **System Settings → Privacy & Security** and click **Open Anyway**, or clear the
@@ -154,6 +166,21 @@ make dmg
 xcrun notarytool submit dist/macmpv-*.dmg --keychain-profile <profile> --wait
 xcrun stapler staple dist/macmpv-*.dmg
 ```
+
+## Website
+
+A static marketing/download site lives in `site/` (dark glass theme, no
+dependencies, plain HTML/CSS/JS). It is ready for Cloudflare Pages:
+
+- Framework preset: **None**
+- Build command: *(empty)*
+- Output directory: `site`
+
+Download buttons point at GitHub Releases (`releases/latest/download/...`) —
+Cloudflare Pages caps static assets at 25 MB and the dmg is ~29 MB, so the
+binary must be hosted on GitHub Releases (or R2), not in the Pages project.
+When you cut a new release, update the dmg filename, size, and SHA-256 in
+`site/index.html` (grep for `macmpv-1.0-arm64.dmg`).
 
 ## Troubleshooting
 

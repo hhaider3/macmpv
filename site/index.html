@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>macmpv — a native macOS video player</title>
+    <meta name="description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Plays everything, streams torrents, and gets out of the way.">
+    <meta property="og:title" content="macmpv — a native macOS video player">
+    <meta property="og:description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine.">
+    <meta property="og:image" content="https://raw.githubusercontent.com/hhaider3/macmpv/main/docs/macmpv-player.png">
+    <meta name="theme-color" content="#05070c">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1020'/%3E%3Cpath d='M25 19l22 13-22 13z' fill='%23e8ecff'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="backdrop" aria-hidden="true">
+        <div class="glow glow-a"></div>
+        <div class="glow glow-b"></div>
+    </div>
+
+    <header class="nav">
+        <a class="brand" href="#top">
+            <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+                <rect width="64" height="64" rx="16" fill="none" stroke="currentColor" stroke-width="3"/>
+                <path d="M25 19l22 13-22 13z" fill="currentColor"/>
+            </svg>
+            <span>macmpv</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+            <a href="#features">Features</a>
+            <a href="#download">Download</a>
+            <a href="#faq">FAQ</a>
+            <a class="github-link" href="https://github.com/hhaider3/macmpv" rel="noopener">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+                GitHub
+            </a>
+        </nav>
+    </header>
+
+    <main id="top">
+        <section class="hero">
+            <div class="hero-badge reveal">Open source · Apache 2.0</div>
+            <h1 class="reveal">The video player your Mac deserves.</h1>
+            <p class="hero-sub reveal">
+                macmpv wraps a fully hardware-accelerated mpv engine in a clean,
+                native SwiftUI interface. It plays everything, streams torrents,
+                and gets out of the way.
+            </p>
+            <div class="hero-actions reveal">
+                <a class="button button-primary" id="download-button"
+                   href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64.dmg"
+                   download>
+                    <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0a.75.75 0 0 1 .75.75v8.69l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4A.75.75 0 1 1 3.53 6.72l2.72 2.72V.75A.75.75 0 0 1 8 0zM1.5 12.5a.75.75 0 0 1 .75.75v1.5h11.5v-1.5a.75.75 0 0 1 1.5 0v2.25a.75.75 0 0 1-.75.75H1.5a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 .75-.75z"/></svg>
+                    Download for macOS
+                </a>
+                <a class="button button-ghost" href="https://github.com/hhaider3/macmpv" rel="noopener">View source</a>
+            </div>
+            <p class="hero-note reveal">
+                macOS 26 or newer · Apple Silicon · 29&nbsp;MB ·
+                <a href="https://github.com/hhaider3/macmpv/releases" rel="noopener">All releases</a>
+            </p>
+
+            <figure class="hero-shot reveal">
+                <div class="shot-frame">
+                    <img src="assets/macmpv-player.png"
+                         alt="macmpv playing a 4K video with playback controls visible"
+                         width="2216" height="1364" loading="lazy" decoding="async">
+                </div>
+                <figcaption>mpv under the hood, SwiftUI on top.</figcaption>
+            </figure>
+        </section>
+
+        <section class="section" id="features">
+            <h2 class="section-title reveal">Everything a player should do</h2>
+            <p class="section-sub reveal">And nothing it shouldn't.</p>
+            <div class="feature-grid">
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13zm5.8 3.2a.8.8 0 0 0-1.3.62v5.36a.8.8 0 0 0 1.3.62l4.27-2.68a.8.8 0 0 0 0-1.24L9.8 8.7z"/></svg>
+                    </div>
+                    <h3>Native &amp; fast</h3>
+                    <p>A real Mac app written in SwiftUI, with mpv's copy-back hardware decoding doing the heavy lifting.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9zm0 2.2A6.8 6.8 0 1 1 6.8 10.5 9 9 0 0 0 12 5.2z"/></svg>
+                    </div>
+                    <h3>Plays everything</h3>
+                    <p>Any format FFmpeg supports — MP4, MKV, WebM, FLAC and dozens more — plus HTTP, HTTPS, RTMP and RTSP streams.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.06 3.94a1.5 1.5 0 0 1 2.12 0l4.88 4.88a1.5 1.5 0 0 1 0 2.12l-9.18 9.19a3 3 0 0 1-2.12.88H6a2 2 0 0 1-2-2v-2.77a3 3 0 0 1 .88-2.12l9.18-9.18zM5.5 15.83V19h3.17l8.5-8.5-3.17-3.17-8.5 8.5z"/></svg>
+                    </div>
+                    <h3>Torrent streaming</h3>
+                    <p>Drop in a magnet link or .torrent file and watch while it downloads — streamed to the player over localhost.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H9.4l-3.7 3.2A1 1 0 0 1 4 18.4V6.5zm5 3.75a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 0 1.5 0v-2.5zm6.5 0a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 0 1.5 0v-2.5z"/></svg>
+                    </div>
+                    <h3>Built-in queue</h3>
+                    <p>Drag and drop, reorder, repeat one or all, and jump between episodes with next/previous.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h9.5a2.5 2.5 0 0 1 0 5H4a1 1 0 0 1 0-2h9.5a.5.5 0 0 0 0-1H4a3 3 0 0 0 0 6h10.5a.5.5 0 0 1 0 1H5a1 1 0 0 0 0 2h9.5a2.5 2.5 0 0 0 0-5H4a1 1 0 0 1 0-2h10.5a4.5 4.5 0 0 1 0 9H5a3 3 0 0 1 0-6z" opacity=".9"/></svg>
+                    </div>
+                    <h3>Subtitles, tuned</h3>
+                    <p>Size, outline, color, background and sync delay — all adjustable. They even move out of the way of the controls on their own.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm1 9.4 3.9 2.25a1 1 0 0 1-1 1.73L11.5 13.9a1.1 1.1 0 0 1-.5-.9V8a1 1 0 0 1 2 0v4.4z"/></svg>
+                    </div>
+                    <h3>Pick up where you left off</h3>
+                    <p>Per-file resume positions and saved intro/outro markers, so binge sessions remember everything.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h13A2.5 2.5 0 0 1 21 6.5v8a2.5 2.5 0 0 1-2.5 2.5h-4.94l-3.7 3.18A1 1 0 0 1 8.5 19.4V17h-3A2.5 2.5 0 0 1 3 14.5v-8zM7 8.75a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H7zm0 4a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5H7z"/></svg>
+                    </div>
+                    <h3>Native shortcuts</h3>
+                    <p>Full-screen playback, screenshots, speed control and scrubbing — all with the keyboard commands you already know.</p>
+                </article>
+                <article class="feature reveal">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.5 13.9 4h2.6a2 2 0 0 1 2 2v2.6L20.5 12 18.5 15.4V18a2 2 0 0 1-2 2h-2.6L12 22l-3.4-2H6a2 2 0 0 1-2-2v-2.6L2.5 12 4 8.6V6a2 2 0 0 1 2-2h2.6L12 2.5zM10.3 15.2l5.2-5.2-1.4-1.4-3.8 3.8-1.8-1.8-1.4 1.4 3.2 3.2z"/></svg>
+                    </div>
+                    <h3>Everything ships inside</h3>
+                    <p>mpv, the FFmpeg libraries and ffprobe are bundled in the app — no Homebrew, no extra installs.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section section-download" id="download">
+            <h2 class="section-title reveal">Get macmpv</h2>
+            <p class="section-sub reveal">Free, open source, and yours to keep.</p>
+
+            <div class="steps">
+                <div class="step reveal">
+                    <span class="step-number">1</span>
+                    <div>
+                        <h3>Download the dmg</h3>
+                        <p>Grab the latest release — about 29&nbsp;MB.</p>
+                    </div>
+                </div>
+                <div class="step reveal">
+                    <span class="step-number">2</span>
+                    <div>
+                        <h3>Drag to Applications</h3>
+                        <p>Open the dmg and drop macmpv into your Applications folder.</p>
+                    </div>
+                </div>
+                <div class="step reveal">
+                    <span class="step-number">3</span>
+                    <div>
+                        <h3>Open it</h3>
+                        <p>The first launch asks macOS for permission — see the note below. Then just play.</p>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="callout reveal">
+                <h3>“macmpv can't be opened because it is from an unidentified developer”</h3>
+                <p>
+                    That's expected: this build is ad-hoc signed rather than notarized.
+                    Open <strong>System Settings → Privacy &amp; Security</strong> and click
+                    <strong>Open Anyway</strong>, or clear the quarantine flag once:
+                </p>
+                <pre><code>xattr -dr com.apple.quarantine /Applications/macmpv.app</code></pre>
+            </aside>
+
+            <div class="download-meta reveal">
+                <a class="button button-primary" href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64.dmg" download>Download dmg</a>
+                <div class="checksum">
+                    <span class="checksum-label">SHA-256</span>
+                    <code>cbc59a25a032a7d7b11f10d791dd1382db1d919730e7f9a8117ec89df89be145</code>
+                </div>
+            </div>
+
+            <p class="variant-note reveal">
+                Watch torrents with zero setup? Grab the
+                <a href="https://github.com/hhaider3/macmpv/releases/latest/download/macmpv-1.0-arm64-torrents.dmg" download><strong>macmpv + Torrents</strong></a>
+                build (122&nbsp;MB) — WebTorrent bundled, nothing else to install.
+            </p>
+        </section>
+
+        <section class="section" id="faq">
+            <h2 class="section-title reveal">Questions</h2>
+            <div class="faq-list">
+                <details class="reveal">
+                    <summary>Do I need mpv or FFmpeg installed?</summary>
+                    <p>No. The app bundles libmpv, the FFmpeg libraries and ffprobe inside the .app — nothing else to install.</p>
+                </details>
+                <details class="reveal">
+                    <summary>What about torrent playback?</summary>
+                    <p>Magnet links and .torrent files stream on the fly. The standard download needs WebTorrent CLI (<code>npm install -g webtorrent-cli</code>); the <strong>macmpv + Torrents</strong> build above bundles it, so torrents work out of the box.</p>
+                </details>
+                <details class="reveal">
+                    <summary>Does it run on Intel Macs?</summary>
+                    <p>Not from the download — the dmg is built for Apple Silicon. Intel users can build from source on the <a href="https://github.com/hhaider3/macmpv" rel="noopener">GitHub repo</a>.</p>
+                </details>
+                <details class="reveal">
+                    <summary>Is it really free?</summary>
+                    <p>Yes — open source under the Apache 2.0 license. Star the repo if you like it.</p>
+                </details>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Built with SwiftUI and mpv. Hosted on Cloudflare, downloads from GitHub Releases.</p>
+        <p>
+            <a href="https://github.com/hhaider3/macmpv" rel="noopener">GitHub</a>
+            <span aria-hidden="true">·</span>
+            <a href="https://github.com/hhaider3/macmpv/blob/main/LICENSE" rel="noopener">Apache 2.0</a>
+            <span aria-hidden="true">·</span>
+            <span id="year">&copy; macmpv contributors</span>
+        </p>
+    </footer>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
