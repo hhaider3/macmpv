@@ -183,8 +183,13 @@ Download buttons point at GitHub Releases, each pinned to its exact tag
 (`releases/download/v1.0/...` and `releases/download/v1.0t/...` for the
 "+ Torrents" build) — Cloudflare Pages caps static assets at 25 MB and the dmg
 is ~29 MB, so binaries must be hosted on GitHub Releases (or R2), not in the
-Pages project. When you cut a new release, update the tag, dmg filename, size,
-and SHA-256 in `site/index.html` (grep for `macmpv-1.0`).
+Pages project.
+
+Releases are automated: `make release [VERSION]` builds both dmgs, patches the
+site's download URLs, sizes, and SHA-256, and publishes both GitHub releases
+(`vX.Y` and `vX.Yt`) via the `gh` CLI — see `Scripts/release.sh`. It refuses a
+dirty working tree (the tags point at HEAD) and leaves the site/plist changes
+for you to commit and push, which deploys them via Cloudflare Pages.
 
 ## Troubleshooting
 
