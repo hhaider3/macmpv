@@ -133,6 +133,65 @@ final class MPVGLView: NSOpenGLView {
         )
     }
 
+    // MARK: - Cursor auto-hide (full screen)
+
+    private var cursorIdleTimer: Timer?
+
+    /// Matches ContentView.fullscreenControlZoneHeight; the cursor stays
+    /// visible while it hovers the bottom player strip.
+    private let cursorVisibleZoneHeight: CGFloat = 160
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        scheduleCursorHide()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        scheduleCursorHide()
+    }
+
+    /// Hides the cursor after 2s of stillness in full screen. Any movement
+    /// unhides it again (system behavior) and restarts this countdown.
+    private func scheduleCursorHide() {
+        cursorIdleTimer?.invalidate()
+        cursorIdleTimer = nil
+        guard let window, window.styleMask.contains(.fullScreen) else { return }
+        cursorIdleTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in
+            guard let self, let window = self.window,
+                  window.isKeyWindow,
+                  window.styleMask.contains(.fullScreen) else { return }
+            // Never hide while the cursor is over the player controls strip,
+            // and never hide a cursor that has left this window — cursor
+            // hiding is global state on macOS.
+            guard NSMouseInRect(NSEvent.mouseLocation, window.frame, false),
+                  window.mouseLocationOutsideOfEventStream.y > self.cursorVisibleZoneHeight
+            else { return }
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
+    }
+
+    private func cancelCursorHide() {
+        cursorIdleTimer?.invalidate()
+        cursorIdleTimer = nil
+        NSCursor.setHiddenUntilMouseMoves(false)
+    }
+
+    @objc private func windowDidExitFullScreen() {
+        cancelCursorHide()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if observedWindow !== window {
@@ -142,6 +201,11 @@ final class MPVGLView: NSOpenGLView {
                     name: NSWindow.willCloseNotification,
                     object: observedWindow
                 )
+                NotificationCenter.default.removeObserver(
+                    self,
+                    name: NSWindow.didExitFullScreenNotification,
+                    object: observedWindow
+                )
             }
             observedWindow = window
             if let window {
@@ -149,6 +213,12 @@ final class MPVGLView: NSOpenGLView {
                     self,
                     selector: #selector(windowWillClose),
                     name: NSWindow.willCloseNotification,
+                    object: window
+                )
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(windowDidExitFullScreen),
+                    name: NSWindow.didExitFullScreenNotification,
                     object: window
                 )
             }
@@ -185,6 +255,7 @@ final class MPVGLView: NSOpenGLView {
     private func teardownDisplayLink() {
         pendingSingleClick?.cancel()
         pendingSingleClick = nil
+        cancelCursorHide()
         displayLink?.invalidate()
         displayLink = nil
         consecutiveNoFrameCount = 0
