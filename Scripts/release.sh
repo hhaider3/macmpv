@@ -5,7 +5,8 @@
 #
 # Usage: Scripts/release.sh [VERSION]
 #   VERSION  optional; defaults to Info.plist. When given, the plist is bumped
-#            first (CFBundleVersion becomes the current date).
+#            first (CFBundleVersion becomes the current date) and the bump is
+#            committed, so the published tag always points at the version built.
 # Requires the gh CLI, authenticated. Refuses a dirty working tree unless
 # FORCE=1 — the release tags point at HEAD, so HEAD must be what you built.
 set -euo pipefail
@@ -41,6 +42,16 @@ if [[ -n "${1:-}" ]]; then
   echo "==> Bumping version to $VERSION"
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d)" "$PLIST"
+  # The release tags HEAD, so the bump must be part of pushed HEAD — commit it
+  # now and push (gh creates the tag at the remote HEAD, so an unpushed bump
+  # would leave the tag pointing at stale version metadata). Guarded so a rerun
+  # after a mid-script failure skips the no-op empty commit. Site patches stay
+  # uncommitted for the manual step.
+  git add "$PLIST"
+  if ! git diff --cached --quiet; then
+    git commit -m "release: bump to $VERSION"
+    git push
+  fi
 fi
 
 echo "==> Building both dmg variants"
@@ -102,5 +113,5 @@ echo ""
 echo "Release published: https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')/releases/tag/v${VERSION}t"
 echo "Remaining manual steps:"
 echo "  1. Review both release notes on GitHub (--generate-notes drafts from commits)"
-echo "  2. git add site/ Resources/Info.plist && git commit -m \"release v$VERSION\" && git push"
+echo "  2. git add site/ && git commit -m \"site: point downloads at v$VERSION releases\" && git push"
 echo "     — the push deploys the updated site via Cloudflare Pages"

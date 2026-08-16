@@ -39,7 +39,7 @@ dmg-torrents:
 	zsh Scripts/package-dmg.sh torrents
 
 release:
-	zsh Scripts/release.sh
+	zsh Scripts/release.sh $(VERSION)
 
 clean:
 	swift package clean
