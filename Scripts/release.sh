@@ -45,7 +45,7 @@ fi
 
 echo "==> Building both dmg variants"
 zsh "$SCRIPT_DIR/package-dmg.sh"
-zsh "$SCRIPT_DIR/package-dmg.sh torrents"
+zsh "$SCRIPT_DIR/package-dmg.sh" torrents
 
 STD_DMG="dist/macmpv-${VERSION}-arm64.dmg"
 TOR_DMG="dist/macmpv-${VERSION}-arm64-torrents.dmg"
