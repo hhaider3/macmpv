@@ -45,7 +45,12 @@ final class PlayerModel {
     var currentID: UUID?
     var position: Double = 0
     var duration: Double = 0
-    var isPlaying = false
+    var isPlaying = false {
+        didSet {
+            guard isPlaying != oldValue else { return }
+            updateSleepPrevention()
+        }
+    }
     var isMuted = false
     var volume: Double = 80
     var speed: Double = 1
@@ -86,8 +91,11 @@ final class PlayerModel {
     @ObservationIgnored private var pendingResumePosition: Double?
     @ObservationIgnored private var rememberedPositions: [String: Double] = [:]
     @ObservationIgnored private var rememberedMarkers: [String: PlaybackMarkers] = [:]
-    @ObservationIgnored private var persistenceTask: Task<Void, Never>?
+    /// Position at the last progress write; snapshots arriving between 1-second
+    /// deltas are ignored so playback persistence costs ~one write per second.
+    @ObservationIgnored private var lastPersistedPosition: Double?
     @ObservationIgnored private var controlsOverlayVisible = true
+    @ObservationIgnored private var idleSleepActivity: NSObjectProtocol?
     /// Height of the bottom controls (including their bottom padding), measured
     /// by the view that renders them; 0 while the overlay is hidden.
     @ObservationIgnored private var controlsBottomInset: Double = 0
@@ -231,7 +239,7 @@ final class PlayerModel {
         guard !didReadLaunchArguments else { return }
         didReadLaunchArguments = true
         let urls = CommandLine.arguments.dropFirst()
-            .filter { !$0.hasPrefix("--macmpv-") }
+            .filter { !$0.hasPrefix("-") }
             .compactMap { argument -> URL? in
             if let remote = URL(string: argument), !remote.isFileURL, remote.scheme != nil {
                 return remote
@@ -605,6 +613,22 @@ final class PlayerModel {
         errorMessage = nil
     }
 
+    /// Video playback alone does not hold an idle-sleep assertion on macOS: the
+    /// rendered frames are our own, not AVKit's. Keep the system and the display
+    /// awake while media plays, and release the assertion as soon as it does not.
+    private func updateSleepPrevention() {
+        let shouldPreventSleep = isPlaying
+        if shouldPreventSleep, idleSleepActivity == nil {
+            idleSleepActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.idleSystemSleepDisabled, .idleDisplaySleepDisabled],
+                reason: "Video playback"
+            )
+        } else if !shouldPreventSleep, let token = idleSleepActivity {
+            ProcessInfo.processInfo.endActivity(token)
+            idleSleepActivity = nil
+        }
+    }
+
     func reportVideoSurfaceFailure() {
         isLoading = false
         errorMessage = "No OpenGL surface is available, so video playback cannot start on this system."
@@ -669,10 +693,13 @@ final class PlayerModel {
     }
 
     func prepareForTermination() {
-        persistenceTask?.cancel()
         rememberCurrentProgress(saveImmediately: true)
         persistStores()
         magnetStream.stop()
+        if let token = idleSleepActivity {
+            ProcessInfo.processInfo.endActivity(token)
+            idleSleepActivity = nil
+        }
     }
 
     private func loadCurrentItem() {
@@ -772,17 +799,31 @@ final class PlayerModel {
         // there is nothing meaningful to resume or persist.
         guard let currentItem, !MediaSupport.isTorrentSource(currentItem.url) else { return }
         let key = persistenceKey(for: currentItem.url)
+        var didFinishEntry = false
         if position >= 5, duration <= 0 || position < duration - 10 {
             rememberedPositions[key] = position
         } else if duration > 0, position >= duration - 10 {
-            rememberedPositions.removeValue(forKey: key)
+            didFinishEntry = rememberedPositions.removeValue(forKey: key) != nil
         }
 
         if saveImmediately {
-            persistenceTask?.cancel()
+            lastPersistedPosition = position
+            persistStores()
+        } else if didFinishEntry {
+            // Deletions happen once per file end — persist them now instead of
+            // through the 1-second gate, so a crash cannot resurrect a stale
+            // end-of-file resume position that handlePlaybackEnded never got to
+            // clear (it needs the end-file event).
+            lastPersistedPosition = position
             persistStores()
         } else {
-            schedulePersistence()
+            // Snapshots arrive many times per second. A debounce task never fired
+            // during playback (each snapshot cancelled the pending wait), so
+            // persist directly, but only once per second of playback progress —
+            // a mid-playback crash then costs at most one second of resume data.
+            guard lastPersistedPosition.map({ abs(position - $0) >= 1 }) ?? true else { return }
+            lastPersistedPosition = position
+            persistStores()
         }
     }
 
@@ -795,17 +836,7 @@ final class PlayerModel {
         persistStores()
     }
 
-    private func schedulePersistence() {
-        persistenceTask?.cancel()
-        persistenceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            self?.persistStores()
-        }
-    }
-
     private func persistStores() {
-        persistenceTask = nil
         if let positions = try? JSONEncoder().encode(rememberedPositions) {
             UserDefaults.standard.set(positions, forKey: Self.positionsDefaultsKey)
         }
@@ -838,11 +869,14 @@ final class PlayerModel {
         Task { [weak self] in
             guard let self else { return }
             let metadata = await probe.inspect(item.url)
-            guard let metadata,
-                  let index = queue.firstIndex(where: { $0.id == item.id }) else { return }
-            queue[index].metadata = metadata
-            if currentID == item.id, duration <= 0 {
-                duration = metadata.duration ?? 0
+            guard let index = queue.firstIndex(where: { $0.id == item.id }) else { return }
+            if let metadata {
+                queue[index].metadata = metadata
+                if currentID == item.id, duration <= 0 {
+                    duration = metadata.duration ?? 0
+                }
+            } else {
+                queue[index].probeFailed = true
             }
         }
     }

@@ -97,9 +97,14 @@ actor MediaProbe {
 
     // MARK: - Executable search
 
+    /// Resolved once per process: the PATH layout, Homebrew/Nix locations, and
+    /// user overrides do not change between probes while the app runs, so
+    /// re-walking them per item is pure waste.
+    private static let ffprobeExecutable: URL? = MediaProbe.resolveFFProbeExecutable()
+
     // Bundled > user-configurable > PATH > hardcoded fallbacks.
     // Finder-launched apps get a minimal PATH, so hardcoded fallbacks are always checked.
-    private static var ffprobeExecutable: URL? {
+    private static func resolveFFProbeExecutable() -> URL? {
         let fm = FileManager.default
 
         // 1. Bundled with app (e.g. Contents/MacOS/ffprobe or Resources/ffprobe)

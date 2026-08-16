@@ -13,10 +13,9 @@ struct QueueSidebar: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 5) {
-                        ForEach(Array(player.queue.enumerated()), id: \.element.id) { index, item in
+                        ForEach(player.queue) { item in
                             QueueRow(
                                 item: item,
-                                index: index,
                                 isCurrent: item.id == player.currentID,
                                 moveBefore: { draggedID in
                                     withAnimation(.easeOut(duration: 0.18)) {
@@ -136,7 +135,6 @@ struct QueueSidebar: View {
 
 private struct QueueRow: View {
     let item: MediaItem
-    let index: Int
     let isCurrent: Bool
     let moveBefore: (UUID) -> Void
     let action: () -> Void
@@ -231,6 +229,10 @@ private struct CurrentMediaDetails: View {
                 }
             } else if MediaSupport.isTorrentSource(item.url) {
                 Text("Streaming from BitTorrent")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else if item.probeFailed {
+                Text("Media info unavailable")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
             } else {

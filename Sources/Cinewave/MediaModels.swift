@@ -4,6 +4,10 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     let id: UUID
     let url: URL
     var metadata: MediaMetadata?
+    /// True once an ffprobe attempt finished without metadata (missing ffprobe,
+    /// timeout, unreadable stream). Lets the UI distinguish "failed" from
+    /// "still probing" instead of spinning forever.
+    var probeFailed = false
 
     init(url: URL) {
         self.id = UUID()

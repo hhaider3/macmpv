@@ -15,11 +15,7 @@ final class MPVGLView: NSOpenGLView {
     private var pendingSingleClick: DispatchWorkItem?
 
     // macOS 14+ displayLink – automatically pauses when the view is hidden or off-screen.
-    @available(macOS 14.0, *)
     private var displayLink: CADisplayLink?
-
-    // Fallback for theoretical pre-14 target (kept for completeness, never used on the current 26.0 target).
-    private var fallbackTimer: Timer?
 
     init?(configuredForMPV: Bool) {
         guard let pixelFormat = Self.makePixelFormat() else { return nil }
@@ -175,30 +171,22 @@ final class MPVGLView: NSOpenGLView {
     // MARK: - DisplayLink
 
     private func setupDisplayLink() {
-        if #available(macOS 14.0, *) {
-            guard displayLink == nil else { return }
-            // `NSView.displayLink(target:selector:)` is the macOS 14+ replacement for CVDisplayLink.
-            // The returned CADisplayLink is view-owned and automatically stops callbacks when
-            // the view is hidden, off-screen, or the window is minimized — eliminating the
-            // 60 Hz polling that previously ran while paused/minimized.
-            let dl = displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
-            dl.add(to: .main, forMode: .common)
-            dl.isPaused = true
-            displayLink = dl
-        } else {
-            startFallbackTimer()
-        }
+        guard displayLink == nil else { return }
+        // `NSView.displayLink(target:selector:)` is the macOS 14+ replacement for CVDisplayLink.
+        // The returned CADisplayLink is view-owned and automatically stops callbacks when
+        // the view is hidden, off-screen, or the window is minimized — eliminating the
+        // 60 Hz polling that previously ran while paused/minimized.
+        let dl = displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+        dl.add(to: .main, forMode: .common)
+        dl.isPaused = true
+        displayLink = dl
     }
 
     private func teardownDisplayLink() {
         pendingSingleClick?.cancel()
         pendingSingleClick = nil
-        if #available(macOS 14.0, *) {
-            displayLink?.invalidate()
-            displayLink = nil
-        }
-        fallbackTimer?.invalidate()
-        fallbackTimer = nil
+        displayLink?.invalidate()
+        displayLink = nil
         consecutiveNoFrameCount = 0
     }
 
@@ -206,16 +194,13 @@ final class MPVGLView: NSOpenGLView {
         engine?.onRenderUpdate = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if #available(macOS 14.0, *) {
-                    self.displayLink?.isPaused = false
-                    self.consecutiveNoFrameCount = 0
-                }
+                self.displayLink?.isPaused = false
+                self.consecutiveNoFrameCount = 0
                 self.needsDisplay = true
             }
         }
     }
 
-    @available(macOS 14.0, *)
     @objc private func handleDisplayLink(_ sender: CADisplayLink) {
         guard let engine else {
             sender.isPaused = true
@@ -232,21 +217,6 @@ final class MPVGLView: NSOpenGLView {
             if consecutiveNoFrameCount > 30 {
                 sender.isPaused = true
             }
-        }
-    }
-
-    // MARK: - Fallback (pre-14, kept only for completeness)
-
-    private func startFallbackTimer() {
-        guard fallbackTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60.0, target: self, selector: #selector(checkForFrameFallback), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
-        fallbackTimer = timer
-    }
-
-    @objc private func checkForFrameFallback() {
-        if engine?.rendererNeedsFrame() == true {
-            needsDisplay = true
         }
     }
 }

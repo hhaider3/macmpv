@@ -270,7 +270,7 @@ final class MPVEngine {
 
             if eid == cinewave_mpv_event_property_change() {
                 let userdata = cinewave_mpv_event_reply_userdata(event)
-                handlePropertyChange(userdata: userdata, handle: handle, event: event)
+                handlePropertyChange(userdata: userdata, handle: handle)
                 continue
             }
 
@@ -290,7 +290,7 @@ final class MPVEngine {
         }
     }
 
-    nonisolated private func handlePropertyChange(userdata: UInt64, handle: OpaquePointer, event: UnsafePointer<mpv_event>) {
+    nonisolated private func handlePropertyChange(userdata: UInt64, handle: OpaquePointer) {
         var changed = false
         switch userdata {
         case 1:
@@ -318,10 +318,6 @@ final class MPVEngine {
             let v = stringPropertySync(handle, name: "media-title")
             if v != bgSnapshot.title { bgSnapshot.title = v; changed = true }
         default:
-            // Unknown userdata — inspect the current event without consuming the next one.
-            if let cname = cinewave_mpv_property_name(event) {
-                _ = cname
-            }
             return
         }
 
@@ -519,54 +515,6 @@ final class MPVEngine {
         return true
     }
 
-    func cycleAudioTrack() {
-        command("cycle", "audio")
-    }
-
-    func cycleSubtitleTrack() {
-        command("cycle", "sub")
-    }
-
-    func frameStep() {
-        command("frame-step")
-    }
-
-    /// Synchronous snapshot for callers that need an immediate read (e.g. tests).
-    /// The event-driven path uses `onSnapshot` instead — this reads directly from mpv
-    /// and does not touch the background queue's cached snapshot.
-    func snapshot() -> Snapshot? {
-        guard let handle else { return nil }
-        return Snapshot(
-            position: cinewave_mpv_get_double(handle, "time-pos", 0),
-            duration: cinewave_mpv_get_double(handle, "duration", 0),
-            paused: cinewave_mpv_get_flag(handle, "pause", 1) != 0,
-            muted: cinewave_mpv_get_flag(handle, "mute", 0) != 0,
-            volume: cinewave_mpv_get_double(handle, "volume", 80),
-            speed: cinewave_mpv_get_double(handle, "speed", 1),
-            eofReached: cinewave_mpv_get_flag(handle, "eof-reached", 0) != 0,
-            title: stringProperty("media-title")
-        )
-    }
-
-    /// Kept for compatibility; with the event-queue architecture new events arrive
-    /// via `onEvent`. This drains any pending non-blocking events as a fallback.
-    func drainEvents() -> [Event] {
-        guard let handle else { return [] }
-        var events: [Event] = []
-        while true {
-            let event = cinewave_mpv_next_event(handle)
-            if event == cinewave_mpv_event_none() { break }
-            if event == cinewave_mpv_event_file_loaded() {
-                events.append(.fileLoaded)
-            } else if event == cinewave_mpv_event_end_file() {
-                events.append(.endFile(error: nil))
-            } else if event == cinewave_mpv_event_shutdown() {
-                events.append(.shutdown)
-            }
-        }
-        return events
-    }
-
     func rendererNeedsFrame() -> Bool {
         guard let renderContext else { return false }
         let flags = cinewave_mpv_render_update(renderContext)
@@ -583,13 +531,9 @@ final class MPVEngine {
         cinewave_mpv_render_report_swap(renderContext)
     }
 
-    private func command(_ first: String, _ second: String? = nil) {
+    private func command(_ first: String) {
         guard let handle else { return }
-        if let second {
-            _ = cinewave_mpv_command_2(handle, first, second)
-        } else {
-            _ = cinewave_mpv_command_1(handle, first)
-        }
+        _ = cinewave_mpv_command_1(handle, first)
     }
 
     private func stringProperty(_ name: String) -> String? {

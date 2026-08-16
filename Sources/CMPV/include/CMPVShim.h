@@ -26,10 +26,6 @@ static inline int cinewave_mpv_set_option_string(
     return mpv_set_option_string(handle, name, value);
 }
 
-static inline int cinewave_mpv_set_wid(mpv_handle *handle, int64_t wid) {
-    return mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &wid);
-}
-
 static inline int cinewave_mpv_command_1(mpv_handle *handle, const char *arg0) {
     const char *args[] = {arg0, NULL};
     return mpv_command(handle, args);
@@ -51,17 +47,6 @@ static inline int cinewave_mpv_command_3(
     const char *arg2
 ) {
     const char *args[] = {arg0, arg1, arg2, NULL};
-    return mpv_command(handle, args);
-}
-
-static inline int cinewave_mpv_command_4(
-    mpv_handle *handle,
-    const char *arg0,
-    const char *arg1,
-    const char *arg2,
-    const char *arg3
-) {
-    const char *args[] = {arg0, arg1, arg2, arg3, NULL};
     return mpv_command(handle, args);
 }
 
@@ -129,11 +114,6 @@ static inline int cinewave_mpv_set_string(
     return mpv_set_property_string(handle, name, value);
 }
 
-static inline int cinewave_mpv_next_event(mpv_handle *handle) {
-    const mpv_event *event = mpv_wait_event(handle, 0);
-    return event ? (int)event->event_id : (int)MPV_EVENT_NONE;
-}
-
 static inline const mpv_event *cinewave_mpv_wait_event(mpv_handle *handle, double timeout) {
     return mpv_wait_event(handle, timeout);
 }
@@ -144,16 +124,6 @@ static inline int cinewave_mpv_event_id(const mpv_event *event) {
 
 static inline uint64_t cinewave_mpv_event_reply_userdata(const mpv_event *event) {
     return event ? event->reply_userdata : 0;
-}
-
-static inline void *cinewave_mpv_event_data(const mpv_event *event) {
-    return event ? event->data : NULL;
-}
-
-static inline const char *cinewave_mpv_property_name(const mpv_event *event) {
-    if (!event || event->event_id != MPV_EVENT_PROPERTY_CHANGE) return NULL;
-    mpv_event_property *prop = (mpv_event_property *)event->data;
-    return prop ? prop->name : NULL;
 }
 
 static inline int cinewave_mpv_event_none(void) {
@@ -184,10 +154,6 @@ static inline int cinewave_mpv_event_property_change(void) {
 
 static inline int cinewave_mpv_observe_property(mpv_handle *handle, uint64_t userdata, const char *name, int format) {
     return mpv_observe_property(handle, userdata, name, (mpv_format)format);
-}
-
-static inline int cinewave_mpv_unobserve_property(mpv_handle *handle, uint64_t userdata) {
-    return mpv_unobserve_property(handle, userdata);
 }
 
 static inline void cinewave_mpv_wakeup(mpv_handle *handle) {
