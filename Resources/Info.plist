@@ -38,6 +38,8 @@
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>macmpv</string>
+	<key>CFBundleIconFile</key>
+	<string>macmpv.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>local.macmpv.player</string>
 	<key>CFBundleInfoDictionaryVersion</key>

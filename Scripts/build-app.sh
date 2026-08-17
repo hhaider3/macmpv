@@ -7,6 +7,7 @@ CONFIGURATION=${1:-release}
 APP_DIR="$PROJECT_DIR/dist/macmpv.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 cd "$PROJECT_DIR"
 # Retry with --disable-sandbox only for the sandbox denial described in the
@@ -26,8 +27,10 @@ fi
 BIN_DIR=$(swift build -c "$CONFIGURATION" --show-bin-path 2>/dev/null || swift build -c "$CONFIGURATION" --disable-sandbox --show-bin-path)
 
 mkdir -p "$MACOS_DIR"
+mkdir -p "$RESOURCES_DIR"
 cp "$BIN_DIR/macmpv" "$MACOS_DIR/macmpv"
 cp "$PROJECT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$PROJECT_DIR/Resources/macmpv.icns" "$RESOURCES_DIR/macmpv.icns"
 chmod +x "$MACOS_DIR/macmpv"
 
 codesign --force --deep --sign - "$APP_DIR"

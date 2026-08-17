@@ -556,6 +556,30 @@ main {
     color: #c9d1e0;
 }
 
+.feedback-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 28px;
+    padding: 28px 30px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+}
+
+.feedback-card h2 {
+    margin: 6px 0 8px;
+    font-size: clamp(22px, 3vw, 30px);
+    letter-spacing: -0.02em;
+}
+
+.feedback-card p:last-child {
+    max-width: 570px;
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 15px;
+}
+
 .download-meta {
     display: flex;
     flex-wrap: wrap;
@@ -675,6 +699,7 @@ main {
     .showcase-reverse .showcase-shot { order: initial; }
     .showcase-copy { max-width: none; }
     .showcase-shot figcaption { text-align: left; }
+    .feedback-card { align-items: flex-start; flex-direction: column; }
     /* A full hash cannot fit one line this narrow; wrap it cleanly instead. */
     .checksum {
         white-space: normal;
