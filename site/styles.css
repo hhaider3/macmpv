@@ -114,7 +114,9 @@ code {
 .brand-mark {
     width: 26px;
     height: 26px;
-    color: var(--accent-b);
+    display: block;
+    border-radius: 7px;
+    object-fit: cover;
 }
 
 .nav-links {
