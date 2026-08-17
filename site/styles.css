@@ -369,6 +369,76 @@ main {
     font-size: 13.5px;
 }
 
+/* ---- Product showcase ---- */
+
+.showcase {
+    display: grid;
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+    align-items: center;
+    gap: clamp(28px, 6vw, 72px);
+}
+
+.showcase-copy {
+    max-width: 390px;
+}
+
+.eyebrow {
+    margin: 0 0 12px;
+    color: var(--text-faint);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.showcase-copy h2 {
+    margin: 0;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+}
+
+.showcase-copy > p:not(.eyebrow) {
+    margin: 18px 0 0;
+    color: var(--text-dim);
+    font-size: 16px;
+}
+
+.showcase-copy .showcase-note {
+    margin-top: 14px;
+    color: var(--text-faint);
+    font-size: 14px;
+}
+
+.showcase-shot {
+    margin: 0;
+}
+
+.showcase-reverse .showcase-shot {
+    order: -1;
+}
+
+.showcase-frame {
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: var(--shadow);
+}
+
+.showcase-frame img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.showcase-shot figcaption {
+    margin-top: 12px;
+    color: var(--text-faint);
+    font-size: 13px;
+    text-align: right;
+}
+
 /* ---- Features ---- */
 
 .feature-grid {
@@ -598,6 +668,13 @@ main {
 @media (max-width: 620px) {
     .nav-links a:not(.github-link) { display: none; }
     .download-meta { flex-direction: column; }
+    .showcase {
+        grid-template-columns: 1fr;
+        gap: 28px;
+    }
+    .showcase-reverse .showcase-shot { order: initial; }
+    .showcase-copy { max-width: none; }
+    .showcase-shot figcaption { text-align: left; }
     /* A full hash cannot fit one line this narrow; wrap it cleanly instead. */
     .checksum {
         white-space: normal;

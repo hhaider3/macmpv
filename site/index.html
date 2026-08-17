@@ -4,16 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>macmpv — a native macOS video player</title>
-    <meta name="description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Plays everything, streams torrents, and gets out of the way.">
+    <meta name="description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Stream torrents immediately, tune subtitles, and enjoy uninterrupted fullscreen playback.">
     <meta property="og:title" content="macmpv — a native macOS video player">
-    <meta property="og:description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine.">
+    <meta property="og:description" content="Stream torrents immediately, tune subtitles live, and enjoy uninterrupted fullscreen playback in a native macOS player built around mpv.">
     <meta property="og:image" content="https://macmpv.pages.dev/assets/macmpv-player.jpg">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="macmpv">
     <meta property="og:url" content="https://macmpv.pages.dev/">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="macmpv — a native macOS video player">
-    <meta name="twitter:description" content="A fast, native macOS video player built with SwiftUI around an embedded mpv engine.">
+    <meta name="twitter:description" content="Stream torrents immediately, tune subtitles live, and enjoy uninterrupted fullscreen playback in a native macOS player built around mpv.">
     <meta name="twitter:image" content="https://macmpv.pages.dev/assets/macmpv-player.jpg">
     <link rel="canonical" href="https://macmpv.pages.dev/">
     <script type="application/ld+json">
@@ -24,7 +24,7 @@
         "url": "https://macmpv.pages.dev/",
         "operatingSystem": "macOS 26",
         "applicationCategory": "MultimediaApplication",
-        "description": "A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Plays every format, streams torrents, and gets out of the way.",
+        "description": "A fast, native macOS video player built with SwiftUI around an embedded mpv engine. Stream torrents immediately, tune subtitles live, and enjoy uninterrupted fullscreen playback.",
         "image": "https://macmpv.pages.dev/assets/macmpv-player.jpg",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
     }
@@ -32,7 +32,7 @@
     <meta name="theme-color" content="#05070c">
     <meta name="google-site-verification" content="gB5leSCPsE-wYUVAdXqqaZtpPRPtcAPRY8eYEsmjqVg" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b1020'/%3E%3Cpath d='M25 19l22 13-22 13z' fill='%23e8ecff'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
     <div class="backdrop" aria-hidden="true">
@@ -65,8 +65,8 @@
             <h1 class="reveal">The video player your Mac deserves.</h1>
             <p class="hero-sub reveal">
                 macmpv wraps a fully hardware-accelerated mpv engine in a clean,
-                native SwiftUI interface. It plays everything, streams torrents,
-                and gets out of the way.
+                native SwiftUI interface. Stream torrents immediately,
+                tune subtitles live, and enjoy an uninterrupted fullscreen experience.
             </p>
             <div class="hero-actions reveal">
                 <div class="download-menu">
@@ -105,6 +105,81 @@
             </figure>
         </section>
 
+        <section class="section showcase" id="subtitle-controls">
+            <div class="showcase-copy reveal">
+                <p class="eyebrow">Subtitle controls</p>
+                <h2>Make every subtitle feel right.</h2>
+                <p>
+                    Adjust size, outline, background, weight, color, and sync delay
+                    while the video keeps playing. Subtitle placement also moves above
+                    the playback controls automatically when they appear.
+                </p>
+                <p class="showcase-note">
+                    The settings stay with you between sessions, so your preferred
+                    subtitle style is ready the next time you press play.
+                </p>
+            </div>
+            <figure class="showcase-shot reveal">
+                <div class="showcase-frame">
+                    <img src="assets/macmpv-subtitle-controls.jpg"
+                         alt="macmpv subtitle settings popover with size, outline, background, bold, text color, and delay controls"
+                         width="2940" height="1912"
+                         loading="lazy" decoding="async">
+                </div>
+                <figcaption>Live subtitle styling, right where you need it.</figcaption>
+            </figure>
+        </section>
+
+        <section class="section showcase showcase-reverse" id="queue">
+            <figure class="showcase-shot reveal">
+                <div class="showcase-frame">
+                    <img src="assets/macmpv-queue.jpg"
+                         alt="macmpv queue sidebar with two videos queued and the current item playing"
+                         width="2356" height="1498"
+                         loading="lazy" decoding="async">
+                </div>
+                <figcaption>A queue that keeps the next watch ready.</figcaption>
+            </figure>
+            <div class="showcase-copy reveal">
+                <p class="eyebrow">Queue, organized</p>
+                <h2>Keep the next thing ready.</h2>
+                <p>
+                    Queue a whole folder, drag items into the order you want, and
+                    move through episodes with next, previous, and repeat controls.
+                    The sidebar stays close without taking over the screen.
+                </p>
+                <p class="showcase-note">
+                    Reorder items while something is playing, then return to a clean
+                    fullscreen view whenever you are ready.
+                </p>
+            </div>
+        </section>
+
+        <section class="section showcase" id="torrent-streaming">
+            <div class="showcase-copy reveal">
+                <p class="eyebrow">Live torrent playback</p>
+                <h2>Stream torrents immediately.</h2>
+                <p>
+                    Open a <code>.torrent</code> file or magnet link and macmpv starts
+                    playback as soon as enough data is available. WebTorrent serves the
+                    selected video over localhost in real time.
+                </p>
+                <p class="showcase-note">
+                    The + Torrents build bundles WebTorrent, so live torrent playback
+                    works without a separate setup step.
+                </p>
+            </div>
+            <figure class="showcase-shot reveal">
+                <div class="showcase-frame">
+                    <img src="assets/macmpv-torrent-streaming.jpg"
+                         alt="macmpv playing a torrent with the queue showing a torrent item and streaming from BitTorrent status"
+                         width="2352" height="1512"
+                         loading="lazy" decoding="async">
+                </div>
+                <figcaption>Magnet and torrent playback, live.</figcaption>
+            </figure>
+        </section>
+
         <section class="section" id="features">
             <h2 class="section-title reveal">Everything a player should do</h2>
             <p class="section-sub reveal">And nothing it shouldn't.</p>
@@ -128,7 +203,7 @@
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.06 3.94a1.5 1.5 0 0 1 2.12 0l4.88 4.88a1.5 1.5 0 0 1 0 2.12l-9.18 9.19a3 3 0 0 1-2.12.88H6a2 2 0 0 1-2-2v-2.77a3 3 0 0 1 .88-2.12l9.18-9.18zM5.5 15.83V19h3.17l8.5-8.5-3.17-3.17-8.5 8.5z"/></svg>
                     </div>
                     <h3>Torrent streaming</h3>
-                    <p>Drop in a magnet link or .torrent file and watch while it downloads — streamed to the player over localhost.</p>
+                    <p>Drop in a magnet link or .torrent file and start streaming immediately over localhost.</p>
                 </article>
                 <article class="feature reveal">
                     <div class="feature-icon">
@@ -237,7 +312,7 @@
                 </details>
                 <details class="reveal">
                     <summary>What about torrent playback?</summary>
-                    <p>Magnet links and .torrent files stream on the fly. The standard download needs WebTorrent CLI (<code>npm install -g webtorrent-cli</code>); the <strong>macmpv + Torrents</strong> build above bundles it, so torrents work out of the box.</p>
+                    <p>Magnet links and .torrent files stream on the fly, with playback beginning as soon as enough data is available. The standard download needs WebTorrent CLI (<code>npm install -g webtorrent-cli</code>); the <strong>macmpv + Torrents</strong> build above bundles it, so torrents work out of the box.</p>
                 </details>
                 <details class="reveal">
                     <summary>Does it run on Intel Macs?</summary>
