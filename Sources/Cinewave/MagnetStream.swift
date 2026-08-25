@@ -10,6 +10,10 @@ private func readFileData(at url: URL) async -> Data? {
     try? Data(contentsOf: url)
 }
 
+private struct TorrentManifest: Decodable {
+    let files: [TorrentFile]
+}
+
 @MainActor
 final class MagnetStream {
     enum StreamError: LocalizedError {
@@ -44,6 +48,117 @@ final class MagnetStream {
         // provably belongs to a dead process — never merely because it matches.
         Task.detached(priority: .utility) {
             Self.removeStaleDownloadDirectories()
+        }
+    }
+
+    /// Resolves a torrent's metadata without downloading its payload. The small
+    /// Node helper emits a stable JSON file instead of relying on WebTorrent CLI's
+    /// human-oriented `--select` listing output.
+    func resolveFiles(
+        from source: URL,
+        completion: @escaping @MainActor (Result<[TorrentFile], StreamError>) -> Void
+    ) {
+        stop()
+
+        let torrentIdentifier: String
+        do {
+            torrentIdentifier = try Self.torrentIdentifier(from: source)
+        } catch {
+            completion(.failure(.invalidFile))
+            return
+        }
+
+        guard let helper = Self.resolveHelper() else {
+            completion(.failure(.helperUnavailable))
+            return
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                magnetDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let manifestURL = directory.appendingPathComponent("torrent-files.json")
+        let scriptURL = directory.appendingPathComponent("torrent-metadata.mjs")
+        let logURL = directory.appendingPathComponent("webtorrent.log")
+        let loaderURL = directory.appendingPathComponent("webtorrent-loader.mjs")
+        let bootstrapURL = directory.appendingPathComponent("webtorrent-bootstrap.mjs")
+        let downloadURL = directory.appendingPathComponent("download", isDirectory: true)
+
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: downloadURL, withIntermediateDirectories: true)
+            try Self.writeMetadataScript(to: scriptURL)
+            try Self.writeCompatibilityLoader(to: loaderURL, bootstrapURL: bootstrapURL)
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            completion(.failure(.helperFailed(error.localizedDescription)))
+            return
+        }
+
+        let process = Process()
+        process.executableURL = helper.nodeExecutableURL
+        process.arguments = [
+            scriptURL.path,
+            helper.webTorrentModuleURL.path,
+            torrentIdentifier,
+            manifestURL.path,
+            downloadURL.path
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        let compatibilityOption = "--import=\(bootstrapURL.absoluteString)"
+        if let nodeOptions = environment["NODE_OPTIONS"], !nodeOptions.isEmpty {
+            environment["NODE_OPTIONS"] = "\(nodeOptions) \(compatibilityOption)"
+        } else {
+            environment["NODE_OPTIONS"] = compatibilityOption
+        }
+        process.environment = environment
+        let logHandle = (try? FileHandle(forWritingTo: logURL)) ?? FileHandle.nullDevice
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+        process.qualityOfService = .userInitiated
+
+        do {
+            try process.run()
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            completion(.failure(.helperFailed(error.localizedDescription)))
+            return
+        }
+
+        self.process = process
+        temporaryDirectory = directory
+        streamWaitTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let deadline = ContinuousClock.now + .seconds(90)
+
+            while !Task.isCancelled, ContinuousClock.now < deadline {
+                if let data = await readFileData(at: manifestURL),
+                   let manifest = try? JSONDecoder().decode(TorrentManifest.self, from: data),
+                   !manifest.files.isEmpty {
+                    streamWaitTask = nil
+                    self.stop()
+                    completion(.success(manifest.files))
+                    return
+                }
+
+                if !process.isRunning {
+                    let detail = process.terminationStatus == 0
+                        ? "The torrent did not expose any files."
+                        : "The metadata helper exited with status \(process.terminationStatus)."
+                    let message = await Self.appendingLogTail(detail, logURL: logURL)
+                    self.stop()
+                    completion(.failure(.helperFailed(message)))
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+
+            guard !Task.isCancelled else { return }
+            self.stop()
+            completion(.failure(.timedOut))
         }
     }
 
@@ -85,9 +200,15 @@ final class MagnetStream {
 
     func start(
         from source: URL,
+        selectedFileIndex: Int? = nil,
         completion: @escaping @MainActor (Result<URL, StreamError>) -> Void
     ) {
         stop()
+
+        if let selectedFileIndex, selectedFileIndex < 0 {
+            completion(.failure(.invalidFile))
+            return
+        }
 
         let torrentIdentifier: String
         do {
@@ -127,7 +248,7 @@ final class MagnetStream {
 
         let process = Process()
         process.executableURL = helper.executableURL
-        process.arguments = helper.prefixArguments + [
+        var arguments = helper.prefixArguments + [
             torrentIdentifier,
             "--mpv",
             "--not-on-top",
@@ -136,6 +257,10 @@ final class MagnetStream {
             downloadURL.path,
             "--quiet"
         ]
+        if let selectedFileIndex {
+            arguments.append(contentsOf: ["--select", String(selectedFileIndex)])
+        }
+        process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
         let helperDirectory = helper.executableURL.deletingLastPathComponent().path
@@ -297,12 +422,67 @@ final class MagnetStream {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
+    private static func writeMetadataScript(to url: URL) throws {
+        let script = """
+        import fs from 'node:fs/promises'
+        import { pathToFileURL } from 'node:url'
+
+        const [modulePath, torrentIdentifier, outputPath, downloadPath] = process.argv.slice(2)
+
+        try {
+          const { default: WebTorrent } = await import(pathToFileURL(modulePath).href)
+          const client = new WebTorrent()
+          let finished = false
+
+          function fail(error) {
+            if (finished) return
+            finished = true
+            console.error(error?.stack || error?.message || String(error))
+            try {
+              client.destroy(() => process.exit(1))
+            } catch {
+              process.exit(1)
+            }
+          }
+
+          client.on('error', fail)
+          const torrent = client.add(torrentIdentifier, { path: downloadPath, deselect: true })
+          torrent.on('warning', warning => console.error(warning?.message || String(warning)))
+          torrent.once('ready', async () => {
+            if (finished) return
+            try {
+              const manifest = {
+                files: torrent.files.map((file, index) => ({
+                  index,
+                  name: file.name,
+                  path: file.path,
+                  length: file.length
+                }))
+              }
+              const temporaryPath = `${outputPath}.tmp`
+              await fs.writeFile(temporaryPath, JSON.stringify(manifest))
+              await fs.rename(temporaryPath, outputPath)
+              finished = true
+              client.destroy(() => process.exit(0))
+            } catch (error) {
+              fail(error)
+            }
+          })
+        } catch (error) {
+          console.error(error?.stack || error?.message || String(error))
+          process.exit(1)
+        }
+        """
+        try Data(script.utf8).write(to: url, options: .atomic)
+    }
+
     private static func writeCompatibilityLoader(to loaderURL: URL, bootstrapURL: URL) throws {
         // WebTorrent CLI 6 currently resolves WebTorrent 2.x alongside uint8-util
         // 2.3.x. That combination passes a hex string to an API which now requires a
-        // byte array and exits with status 1 for every magnet. Patch only the two
-        // affected debug-label calls while loading WebTorrent; newer versions do not
-        // contain this expression and pass through unchanged.
+        // byte array and exits with status 1 for every magnet. Its file selector also
+        // uses substring matching, so index 38 selects 3, 8, and 38. Patch those two
+        // narrow compatibility issues while loading WebTorrent; newer versions whose
+        // source no longer contains these expressions pass through unchanged.
         let loader = """
         export async function load(url, context, nextLoad) {
           const result = await nextLoad(url, context)
@@ -314,10 +494,15 @@ final class MagnetStream {
             : String(result.source)
           return {
             ...result,
-            source: source.replaceAll(
-              'arr2hex(parsedTorrent.infoHash)',
-              'arr2hex(parsedTorrent.infoHashBuffer)'
-            )
+            source: source
+              .replaceAll(
+                'arr2hex(parsedTorrent.infoHash)',
+                'arr2hex(parsedTorrent.infoHashBuffer)'
+              )
+              .replaceAll(
+                'if (this.so.includes(i)) {',
+                "if (String(this.so).split(',').map(Number).includes(i)) {"
+              )
           }
         }
         """
@@ -334,10 +519,15 @@ final class MagnetStream {
             : String(result.source)
           return {
             ...result,
-            source: source.replaceAll(
-              'arr2hex(parsedTorrent.infoHash)',
-              'arr2hex(parsedTorrent.infoHashBuffer)'
-            )
+            source: source
+              .replaceAll(
+                'arr2hex(parsedTorrent.infoHash)',
+                'arr2hex(parsedTorrent.infoHashBuffer)'
+              )
+              .replaceAll(
+                'if (this.so.includes(i)) {',
+                "if (String(this.so).split(',').map(Number).includes(i)) {"
+              )
           }
         }
 
@@ -370,6 +560,8 @@ final class MagnetStream {
     private struct Helper {
         let executableURL: URL
         let prefixArguments: [String]
+        let nodeExecutableURL: URL
+        let webTorrentModuleURL: URL
     }
 
     private static func resolveHelper() -> Helper? {
@@ -381,15 +573,64 @@ final class MagnetStream {
             .appendingPathComponent("Contents/Helpers/webtorrent-node")
         let cliURL = Bundle.main.resourceURL?
             .appendingPathComponent("webtorrent-cli/bin/cmd.js")
+        let moduleURL = Bundle.main.resourceURL?
+            .appendingPathComponent("webtorrent-cli/node_modules/webtorrent/index.js")
         if let cliURL,
+           let moduleURL,
            fileManager.isExecutableFile(atPath: nodeURL.path),
-           fileManager.fileExists(atPath: cliURL.path) {
-            return Helper(executableURL: nodeURL, prefixArguments: [cliURL.path])
+           fileManager.fileExists(atPath: cliURL.path),
+           fileManager.fileExists(atPath: moduleURL.path) {
+            return Helper(
+                executableURL: nodeURL,
+                prefixArguments: [cliURL.path],
+                nodeExecutableURL: nodeURL,
+                webTorrentModuleURL: moduleURL
+            )
         }
 
         // 2. Installed CLI (MACMPV_WEBTORRENT override, PATH, Homebrew locations).
-        guard let executable = webtorrentExecutable else { return nil }
-        return Helper(executableURL: executable, prefixArguments: [])
+        guard let executable = webtorrentExecutable,
+              let nodeExecutableURL,
+              let webTorrentModuleURL = webTorrentModuleURL(for: executable) else { return nil }
+        return Helper(
+            executableURL: executable,
+            prefixArguments: [],
+            nodeExecutableURL: nodeExecutableURL,
+            webTorrentModuleURL: webTorrentModuleURL
+        )
+    }
+
+    private static func webTorrentModuleURL(for executable: URL) -> URL? {
+        let fileManager = FileManager.default
+        let resolvedExecutable = executable.resolvingSymlinksInPath()
+        let cliRoot = resolvedExecutable
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let candidates = [
+            cliRoot.appendingPathComponent("node_modules/webtorrent/index.js"),
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/webtorrent-cli/node_modules/webtorrent/index.js"),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules/webtorrent-cli/node_modules/webtorrent/index.js"),
+            URL(fileURLWithPath: "/opt/local/lib/node_modules/webtorrent-cli/node_modules/webtorrent/index.js")
+        ]
+        return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
+    }
+
+    private static var nodeExecutableURL: URL? {
+        let fileManager = FileManager.default
+        let environment = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+        if let path = environment["PATH"] {
+            candidates.append(contentsOf: path.split(separator: ":").map {
+                (String($0) as NSString).appendingPathComponent("node")
+            })
+        }
+        candidates.append(contentsOf: [
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/opt/local/bin/node"
+        ])
+        return candidates.first(where: fileManager.isExecutableFile(atPath:))
+            .map { URL(fileURLWithPath: $0) }
     }
 
     private static var webtorrentExecutable: URL? {

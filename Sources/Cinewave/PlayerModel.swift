@@ -316,7 +316,7 @@ final class PlayerModel {
         engineTitle = nil
         isLoading = true
         ignoreNextEndEvent = isReplacingCurrentItem
-        let key = persistenceKey(for: item.url)
+        let key = persistenceKey(for: item)
         pendingResumePosition = MediaSupport.isTorrentSource(item.url) ? nil : rememberedPositions[key]
         let markers = rememberedMarkers[key]
         introEndMarker = markers?.introEnd
@@ -537,7 +537,7 @@ final class PlayerModel {
         guard let currentItem else { return }
         introEndMarker = nil
         outroStartMarker = nil
-        rememberedMarkers.removeValue(forKey: persistenceKey(for: currentItem.url))
+        rememberedMarkers.removeValue(forKey: persistenceKey(for: currentItem))
         persistStores()
     }
 
@@ -713,6 +713,11 @@ final class PlayerModel {
         }
 
         if MediaSupport.isTorrentSource(currentItem.url) {
+            if currentItem.torrentFile == nil {
+                resolveTorrentContents(for: currentItem)
+                return
+            }
+
             let itemID = currentItem.id
             // Swallow the end-file event `stop` emits so it isn't mistaken for the
             // magnet stream finishing before it has resolved.
@@ -720,7 +725,10 @@ final class PlayerModel {
             pendingResumePosition = nil
             engine.stop()
             isPlaying = false
-            magnetStream.start(from: currentItem.url) { [weak self] result in
+            magnetStream.start(
+                from: currentItem.url,
+                selectedFileIndex: currentItem.torrentFile?.index
+            ) { [weak self] result in
                 guard let self, self.currentID == itemID else { return }
                 switch result {
                 case .success(let streamURL):
@@ -737,6 +745,59 @@ final class PlayerModel {
 
         magnetStream.stop()
         loadResolvedSource(currentItem.url)
+    }
+
+    private func resolveTorrentContents(for container: MediaItem) {
+        let itemID = container.id
+        ignoreNextEndEvent = true
+        pendingResumePosition = nil
+        engine.stop()
+        isPlaying = false
+
+        magnetStream.resolveFiles(from: container.url) { [weak self] result in
+            guard let self,
+                  self.currentID == itemID,
+                  let containerIndex = self.queue.firstIndex(where: { $0.id == itemID }) else { return }
+
+            switch result {
+            case .success(let files):
+                // Torrent metadata is not required to store files in filename order.
+                // Keep the original index on each TorrentFile for WebTorrent, but
+                // present a Finder-like natural order so episode 2 sorts before 10.
+                let playableFiles = files
+                    .filter(MediaSupport.isPlayableTorrentFile)
+                    .sorted {
+                        $0.path.localizedStandardCompare($1.path) == .orderedAscending
+                    }
+                guard !playableFiles.isEmpty else {
+                    self.ignoreNextEndEvent = false
+                    self.isLoading = false
+                    self.isPlaying = false
+                    self.errorMessage = "The torrent does not contain a supported video or audio file."
+                    return
+                }
+
+                let expandedItems = playableFiles.map { file in
+                    MediaItem(url: container.url, torrentFile: file)
+                }
+                self.queue.replaceSubrange(containerIndex...containerIndex, with: expandedItems)
+                // Start with the first naturally sorted media file. Every expanded
+                // row gets a fresh identity so SwiftUI cannot retain the placeholder
+                // row at an unrelated position in the newly resolved file list.
+                self.currentID = expandedItems[0].id
+                self.duration = 0
+                self.engineTitle = nil
+                self.audioTracks = []
+                self.subtitleTracks = []
+                self.loadCurrentItem()
+
+            case .failure(let error):
+                self.ignoreNextEndEvent = false
+                self.isLoading = false
+                self.isPlaying = false
+                self.errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func updateSubtitlePosition() {
@@ -798,7 +859,7 @@ final class PlayerModel {
         // Magnet streams are ephemeral; their localhost URL changes every session, so
         // there is nothing meaningful to resume or persist.
         guard let currentItem, !MediaSupport.isTorrentSource(currentItem.url) else { return }
-        let key = persistenceKey(for: currentItem.url)
+        let key = persistenceKey(for: currentItem)
         var didFinishEntry = false
         if position >= 5, duration <= 0 || position < duration - 10 {
             rememberedPositions[key] = position
@@ -829,7 +890,7 @@ final class PlayerModel {
 
     private func saveCurrentMarkers() {
         guard let currentItem else { return }
-        rememberedMarkers[persistenceKey(for: currentItem.url)] = PlaybackMarkers(
+        rememberedMarkers[persistenceKey(for: currentItem)] = PlaybackMarkers(
             introEnd: introEndMarker,
             outroStart: outroStartMarker
         )
@@ -847,6 +908,12 @@ final class PlayerModel {
 
     private func persistenceKey(for url: URL) -> String {
         url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
+    }
+
+    private func persistenceKey(for item: MediaItem) -> String {
+        let sourceKey = persistenceKey(for: item.url)
+        guard let torrentFile = item.torrentFile else { return sourceKey }
+        return "\(sourceKey)#torrent-file=\(torrentFile.index)"
     }
 
     private func screenshotFilename() -> String {
@@ -897,7 +964,7 @@ final class PlayerModel {
 
     private func handlePlaybackEnded() {
         if let currentItem {
-            rememberedPositions.removeValue(forKey: persistenceKey(for: currentItem.url))
+            rememberedPositions.removeValue(forKey: persistenceKey(for: currentItem))
             persistStores()
         }
         switch repeatMode {

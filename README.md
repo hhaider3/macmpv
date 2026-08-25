@@ -11,7 +11,7 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 
 - Embedded, hardware-accelerated mpv playback
 - Local video/audio files and HTTP, HTTPS, RTMP, or RTSP streams
-- `.magnet`, `.torrent`, and magnet links through WebTorrent CLI
+- `.magnet`, `.torrent`, and magnet links through WebTorrent CLI, including multi-file torrents
 - Drag-and-drop, reorderable queue with next/previous and repeat modes
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
 - Per-file playback resume and saved intro/outro markers
@@ -65,7 +65,7 @@ Anything [mpv](https://mpv.io/) / [FFmpeg](https://ffmpeg.org/) can play. Common
 
 `mp4`, `m4v`, `mov`, `mkv`, `mka`, `webm`, `avi`, `flv`, `ts`, `mts`, `m2ts`, `mpeg`, `mpg`, `vob`, `wmv`, `asf`, `divx`, `f4v`, `rm`, `rmvb`, `3gp`, `3g2`, `ogv`, `ogm`, `ogg`, `oga`, `opus`, `mp3`, `m4a`, `aac`, `ac3`, `dts`, `flac`, `alac`, `ape`, `aiff`, `caf`, `wav`, `wma` plus `m3u`/`m3u8` playlists.
 
-Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. Torrent playback starts streaming immediately through WebTorrent CLI, selecting the torrent's largest file and serving it to the embedded player over localhost. Streamed data lives in a per-run temp directory tagged with the app's PID; it is removed on exit, and leftovers from crashed runs are swept on the next launch. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
+Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. After torrent metadata resolves, every supported video or audio file is added to the queue in natural filename order while retaining its original WebTorrent index for playback. The first file starts automatically, and selecting any row streams that file to the embedded player over localhost; non-media extras are hidden. Streamed data lives in a per-run temp directory tagged with the app's PID; it is removed on exit, and leftovers from crashed runs are swept on the next launch. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
 
 ## Keyboard Shortcuts
 
@@ -185,7 +185,7 @@ Download buttons point at GitHub Releases, each pinned to its exact tag
 is ~29 MB, so binaries must be hosted on GitHub Releases (or R2), not in the
 Pages project.
 
-Releases are automated: `make release` (or `make release VERSION=1.2` to bump
+Releases are automated: `make release` (or `make release VERSION=1.3` to bump
 Info.plist first — the bump is committed so the tag points at the version
 built) builds both dmgs, patches the site's download URLs, sizes, and SHA-256,
 and publishes both GitHub releases (`vX.Y` and `vX.Yt`) via the `gh` CLI — see

@@ -166,8 +166,15 @@ private struct QueueRow: View {
                         .lineLimit(1)
 
                     HStack(spacing: 5) {
-                        Text(item.fileExtension.isEmpty ? "STREAM" : item.fileExtension)
-                        if let duration = item.metadata?.duration {
+                        if MediaSupport.isTorrentSource(item.url), item.torrentFile == nil {
+                            Text("READING FILES…")
+                        } else {
+                            Text(item.fileExtension.isEmpty ? "STREAM" : item.fileExtension)
+                        }
+                        if let torrentFile = item.torrentFile {
+                            Text("•")
+                            Text(torrentFile.sizeLabel)
+                        } else if let duration = item.metadata?.duration {
                             Text("•")
                             Text(duration.playbackTime)
                         }
@@ -228,9 +235,18 @@ private struct CurrentMediaDetails: View {
                     }
                 }
             } else if MediaSupport.isTorrentSource(item.url) {
-                Text("Streaming from BitTorrent")
+                if item.torrentFile == nil {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Reading torrent contents…")
+                    }
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+                } else {
+                    Text("Streaming from BitTorrent")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
             } else if item.probeFailed {
                 Text("Media info unavailable")
                     .font(.system(size: 10, weight: .medium))

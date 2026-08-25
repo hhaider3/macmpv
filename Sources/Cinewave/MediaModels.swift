@@ -3,19 +3,26 @@ import Foundation
 struct MediaItem: Identifiable, Hashable, Sendable {
     let id: UUID
     let url: URL
+    /// The file inside a multi-file torrent represented by this queue entry.
+    /// `nil` means the torrent has not resolved its file table yet.
+    let torrentFile: TorrentFile?
     var metadata: MediaMetadata?
     /// True once an ffprobe attempt finished without metadata (missing ffprobe,
     /// timeout, unreadable stream). Lets the UI distinguish "failed" from
     /// "still probing" instead of spinning forever.
     var probeFailed = false
 
-    init(url: URL) {
-        self.id = UUID()
+    init(id: UUID = UUID(), url: URL, torrentFile: TorrentFile? = nil) {
+        self.id = id
         self.url = url
+        self.torrentFile = torrentFile
         self.metadata = nil
     }
 
     var title: String {
+        if let torrentFile {
+            return torrentFile.name
+        }
         if !url.isFileURL,
            url.scheme?.lowercased() == "magnet",
            let displayName = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -29,7 +36,23 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     }
 
     var fileExtension: String {
-        url.pathExtension.uppercased()
+        if let torrentFile {
+            return (torrentFile.path as NSString).pathExtension.uppercased()
+        }
+        return url.pathExtension.uppercased()
+    }
+}
+
+struct TorrentFile: Codable, Hashable, Sendable {
+    /// Original position in WebTorrent's `torrent.files` array. This must not be
+    /// renumbered after filtering because it is passed back to CLI `--select`.
+    let index: Int
+    let name: String
+    let path: String
+    let length: Int64
+
+    var sizeLabel: String {
+        ByteCountFormatter.string(fromByteCount: length, countStyle: .file)
     }
 }
 
@@ -79,6 +102,13 @@ enum MediaSupport {
     static func isTorrentSource(_ url: URL) -> Bool {
         (url.isFileURL && ["magnet", "torrent"].contains(url.pathExtension.lowercased())) ||
             url.scheme?.lowercased() == "magnet"
+    }
+
+    static func isPlayableTorrentFile(_ file: TorrentFile) -> Bool {
+        let fileExtension = (file.path as NSString).pathExtension.lowercased()
+        return !fileExtension.isEmpty &&
+            !["magnet", "m3u", "m3u8", "torrent"].contains(fileExtension) &&
+            extensions.contains(fileExtension)
     }
 }
 
