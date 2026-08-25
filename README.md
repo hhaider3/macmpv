@@ -138,8 +138,8 @@ rewrites all load commands to `@rpath`, re-signs, and packs
 installed, on the same architecture and macOS 26 or newer. WebTorrent CLI stays
 optional and external — torrent playback still requires it on the target Mac.
 
-A "+ Torrents" variant also bundles a node runtime and WebTorrent CLI
-(~120 MB vs 29 MB) so torrent playback works with nothing installed:
+A "+ Torrents" variant also bundles a node runtime and WebTorrent CLI. It is
+larger than the standard build, but torrent playback works with nothing installed:
 
 ```sh
 make dmg-torrents   # dist/macmpv-<version>-<arch>-torrents.dmg
@@ -180,10 +180,10 @@ It is ready for Cloudflare Pages:
 - Output directory: `site`
 
 Download buttons point at GitHub Releases, each pinned to its exact tag
-(`releases/download/v1.0/...` and `releases/download/v1.0t/...` for the
-"+ Torrents" build) — Cloudflare Pages caps static assets at 25 MB and the dmg
-is ~29 MB, so binaries must be hosted on GitHub Releases (or R2), not in the
-Pages project.
+(`releases/download/vX.Y/...` and `releases/download/vX.Yt/...` for the
+"+ Torrents" build). Both DMGs exceed Cloudflare Pages' 25 MB static asset
+limit, so binaries must be hosted on GitHub Releases (or R2), not in the Pages
+project.
 
 Releases are automated: `make release` (or `make release VERSION=1.3` to bump
 Info.plist first — the bump is committed so the tag points at the version
