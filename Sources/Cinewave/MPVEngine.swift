@@ -433,6 +433,25 @@ final class MPVEngine {
         return aspect > 0 ? aspect : nil
     }
 
+    /// Native display dimensions after sample-aspect correction and video
+    /// filters. Falls back to the decoded height plus display aspect on mpv
+    /// builds that do not expose the display-width/display-height subproperties.
+    func videoDisplaySize() -> NSSize? {
+        guard let handle else { return nil }
+
+        for property in ["video-out-params", "video-params"] {
+            let width = cinewave_mpv_get_double(handle, "\(property)/dw", 0)
+            let height = cinewave_mpv_get_double(handle, "\(property)/dh", 0)
+            if width > 0, height > 0 {
+                return NSSize(width: width, height: height)
+            }
+        }
+
+        let decodedHeight = cinewave_mpv_get_double(handle, "video-params/h", 0)
+        guard decodedHeight > 0, let aspect = videoDisplayAspect() else { return nil }
+        return NSSize(width: decodedHeight * aspect, height: decodedHeight)
+    }
+
     // MARK: - Subtitle appearance
 
     func setSubtitleScale(_ scale: Double) {

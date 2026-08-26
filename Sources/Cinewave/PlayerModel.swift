@@ -188,6 +188,10 @@ final class PlayerModel {
                 self.ignoreNextEndEvent = false
                 self.isLoading = false
                 self.refreshTracks()
+                // Match a normal window to the video's display aspect so playback
+                // does not start with app-added letterboxing. Fullscreen and zoomed
+                // windows intentionally keep the user's chosen screen-filling size.
+                self.fitWindowToVideoAspect()
                 // Video geometry is known once the file loads; subtitle clearance
                 // depends on the letterboxed video rect.
                 self.updateSubtitlePosition()
@@ -832,6 +836,84 @@ final class PlayerModel {
         let shift = requiredClearance - subtitleBottomFromViewBottom
         let position = 100 - shift / videoHeight * 100
         engine.setSubtitlePosition(min(max(position, 0), 150))
+    }
+
+    /// Reshapes a regular playback window to the video's native display size,
+    /// scaling only as needed to remain inside the usable screen and the app's
+    /// minimum control size.
+    private func fitWindowToVideoAspect() {
+        guard let view = videoView,
+              let window = view.window,
+              !window.styleMask.contains(.fullScreen),
+              !window.isZoomed,
+              !window.isMiniaturized,
+              let displaySize = engine.videoDisplaySize(),
+              displaySize.width > 0,
+              displaySize.height > 0,
+              case let aspect = displaySize.width / displaySize.height,
+              aspect.isFinite,
+              aspect > 0,
+              let screen = window.screen ?? NSScreen.main else { return }
+
+        let visibleFrame = screen.visibleFrame
+        // isZoomed is authoritative for the green-button zoom state. Also protect
+        // windows that were manually sized to the visible screen bounds.
+        let maximizedTolerance: CGFloat = 2
+        let frame = window.frame
+        let fillsVisibleScreen = abs(frame.minX - visibleFrame.minX) <= maximizedTolerance
+            && abs(frame.minY - visibleFrame.minY) <= maximizedTolerance
+            && abs(frame.width - visibleFrame.width) <= maximizedTolerance
+            && abs(frame.height - visibleFrame.height) <= maximizedTolerance
+        guard !fillsVisibleScreen else { return }
+
+        let contentRect = window.contentRect(forFrameRect: frame)
+        let chromeWidth = max(0, frame.width - contentRect.width)
+        let chromeHeight = max(0, frame.height - contentRect.height)
+        let maximumContentWidth = max(1, visibleFrame.width - chromeWidth)
+        let maximumContentHeight = max(1, visibleFrame.height - chromeHeight)
+        let minimumContentSize = window.contentMinSize
+
+        // Express all limits as a content-height range where width = height × aspect.
+        let minimumHeight = max(minimumContentSize.height, minimumContentSize.width / aspect)
+        let maximumHeight = min(maximumContentHeight, maximumContentWidth / aspect)
+        // Extremely tall or wide video can be impossible to fit while honoring the
+        // app's minimum usable control size. In that rare case, keep the current
+        // window instead of moving part of it off-screen.
+        guard minimumHeight <= maximumHeight else { return }
+
+        // Video pixels equal points only at 1× backing scale; divide so the
+        // window shows one device pixel per source pixel (e.g. half the pixel
+        // height on a 2× Retina display) instead of pinning against full screen.
+        let preferredHeight = displaySize.height / window.backingScaleFactor
+        let targetContentHeight = min(max(preferredHeight, minimumHeight), maximumHeight)
+        let targetContentSize = NSSize(
+            width: targetContentHeight * aspect,
+            height: targetContentHeight
+        )
+        guard abs(targetContentSize.width - contentRect.width) > 0.5
+                || abs(targetContentSize.height - contentRect.height) > 0.5 else { return }
+
+        let targetFrameSize = window.frameRect(
+            forContentRect: NSRect(origin: .zero, size: targetContentSize)
+        ).size
+        var targetOrigin = NSPoint(
+            x: frame.midX - targetFrameSize.width / 2,
+            y: frame.midY - targetFrameSize.height / 2
+        )
+        targetOrigin.x = min(
+            max(targetOrigin.x, visibleFrame.minX),
+            visibleFrame.maxX - targetFrameSize.width
+        )
+        targetOrigin.y = min(
+            max(targetOrigin.y, visibleFrame.minY),
+            visibleFrame.maxY - targetFrameSize.height
+        )
+
+        window.setFrame(
+            NSRect(origin: targetOrigin, size: targetFrameSize),
+            display: true,
+            animate: true
+        )
     }
 
     private func loadResolvedSource(_ source: URL) {
