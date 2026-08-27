@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var isShowingURLSheet = false
     @State private var isFullscreen = false
     @State private var isFullscreenControlZoneHovered = false
+    @State private var isWindowedControlZoneHovered = false
 
     private let fullscreenControlZoneHeight: CGFloat = 160
 
@@ -16,8 +17,8 @@ struct ContentView: View {
             if player.isSidebarVisible {
                 HStack(alignment: .top, spacing: 0) {
                     QueueSidebar(player: player)
-                        .padding(.top, 58)
-                        .padding(.bottom, 130)
+                        .padding(.top, 46)
+                        .padding(.bottom, areBottomControlsVisible ? 130 : 12)
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, 10)
@@ -60,21 +61,30 @@ struct ContentView: View {
         .onChange(of: isFullscreenControlZoneHovered) {
             updateSubtitleControlInset()
         }
+        .onChange(of: isWindowedControlZoneHovered) {
+            updateSubtitleControlInset()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             isFullscreen = true
             isFullscreenControlZoneHovered = false
+            isWindowedControlZoneHovered = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             isFullscreen = false
             isFullscreenControlZoneHovered = false
+            isWindowedControlZoneHovered = false
         }
     }
 
     private func updateSubtitleControlInset() {
-        player.setControlsOverlayVisible(!isFullscreen || isFullscreenControlZoneHovered)
+        player.setControlsOverlayVisible(areBottomControlsVisible)
     }
 
-    private func isMouseInFullscreenControlZone() -> Bool {
+    private var areBottomControlsVisible: Bool {
+        isFullscreen ? isFullscreenControlZoneHovered : isWindowedControlZoneHovered
+    }
+
+    private func isMouseInControlZone() -> Bool {
         guard let window = NSApp.keyWindow else { return false }
         let mouse = NSEvent.mouseLocation
         let frame = window.frame
@@ -117,12 +127,7 @@ struct ContentView: View {
 
                     Spacer()
 
-                    PlayerControls(player: player)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 18)
-                        .background {
-                            ControlsInsetReader(player: player)
-                        }
+                    windowedControls
                 }
 
                 if player.isLoading {
@@ -139,6 +144,37 @@ struct ContentView: View {
                         Spacer()
                     }
                 }
+            }
+        }
+    }
+
+    private var windowedControls: some View {
+        ZStack(alignment: .bottom) {
+            Color.clear
+                .contentShape(Rectangle())
+
+            if isWindowedControlZoneHovered {
+                PlayerControls(player: player)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
+                    .background {
+                        ControlsInsetReader(player: player)
+                    }
+                    .transition(.opacity)
+            }
+        }
+        .frame(height: fullscreenControlZoneHeight)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            let effective = hovering || player.isSubtitleSettingsPresented
+            withAnimation(.easeOut(duration: 0.2)) {
+                isWindowedControlZoneHovered = effective
+            }
+        }
+        .onChange(of: player.isSubtitleSettingsPresented) { _, presented in
+            guard !presented else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                isWindowedControlZoneHovered = isMouseInControlZone()
             }
         }
     }
@@ -195,7 +231,7 @@ struct ContentView: View {
                 // The popover swallowed hover events while open, so the zone state
                 // may be stale; re-evaluate it from the actual cursor position.
                 withAnimation(.easeOut(duration: 0.2)) {
-                    isFullscreenControlZoneHovered = isMouseInFullscreenControlZone()
+                    isFullscreenControlZoneHovered = isMouseInControlZone()
                 }
             }
         }
@@ -256,7 +292,7 @@ private struct PlayerHeader: View {
             .help("Open network stream")
         }
         .padding(.horizontal, 17)
-        .padding(.top, 28)
+        .padding(.top, 4)
     }
 }
 

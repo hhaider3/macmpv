@@ -1,8 +1,20 @@
 import Foundation
 
-struct MediaItem: Identifiable, Hashable, Sendable {
+enum MediaGroupKind: String, Codable, Hashable, Sendable {
+    case standalone
+    case playlist
+    case torrent
+}
+
+struct MediaItem: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     let url: URL
+    /// Stable identity shared by every item opened as one playlist or torrent.
+    /// Standalone media receives its own one-item group as well, which keeps
+    /// queue ordering and persistence consistent across all source types.
+    let groupID: UUID
+    let groupTitle: String?
+    let groupKind: MediaGroupKind
     /// The file inside a multi-file torrent represented by this queue entry.
     /// `nil` means the torrent has not resolved its file table yet.
     let torrentFile: TorrentFile?
@@ -12,10 +24,20 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     /// "still probing" instead of spinning forever.
     var probeFailed = false
 
-    init(id: UUID = UUID(), url: URL, torrentFile: TorrentFile? = nil) {
+    init(
+        id: UUID = UUID(),
+        url: URL,
+        torrentFile: TorrentFile? = nil,
+        groupID: UUID = UUID(),
+        groupTitle: String? = nil,
+        groupKind: MediaGroupKind = .standalone
+    ) {
         self.id = id
         self.url = url
         self.torrentFile = torrentFile
+        self.groupID = groupID
+        self.groupTitle = groupTitle
+        self.groupKind = groupKind
         self.metadata = nil
     }
 
@@ -43,6 +65,17 @@ struct MediaItem: Identifiable, Hashable, Sendable {
     }
 }
 
+struct MediaQueueGroup: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let title: String
+    let kind: MediaGroupKind
+    var items: [MediaItem]
+
+    var isCollapsible: Bool {
+        kind != .standalone || items.count > 1
+    }
+}
+
 struct TorrentFile: Codable, Hashable, Sendable {
     /// Original position in WebTorrent's `torrent.files` array. This must not be
     /// renumbered after filtering because it is passed back to CLI `--select`.
@@ -56,7 +89,7 @@ struct TorrentFile: Codable, Hashable, Sendable {
     }
 }
 
-struct MediaMetadata: Hashable, Sendable {
+struct MediaMetadata: Hashable, Codable, Sendable {
     var duration: Double?
     var width: Int?
     var height: Int?
@@ -102,6 +135,10 @@ enum MediaSupport {
     static func isTorrentSource(_ url: URL) -> Bool {
         (url.isFileURL && ["magnet", "torrent"].contains(url.pathExtension.lowercased())) ||
             url.scheme?.lowercased() == "magnet"
+    }
+
+    static func isPlaylistSource(_ url: URL) -> Bool {
+        url.isFileURL && ["m3u", "m3u8"].contains(url.pathExtension.lowercased())
     }
 
     static func isPlayableTorrentFile(_ file: TorrentFile) -> Bool {

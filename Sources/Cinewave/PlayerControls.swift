@@ -168,7 +168,6 @@ struct PlayerControls: View {
         .padding(.bottom, 16)
         .glassEffect(
             .regular
-                .tint(.black.opacity(0.20))
                 .interactive(),
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )

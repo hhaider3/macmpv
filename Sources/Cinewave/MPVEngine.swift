@@ -111,6 +111,10 @@ final class MPVEngine {
             ("msg-level", "all=warn"),
             ("audio-client-name", "macmpv"),
             ("sub-auto", "fuzzy"),
+            // Some Matroska/ASS streams reuse subtitle packet ReadOrder values.
+            // Clear libass's event cache on seeks so rewinding does not suppress
+            // packets that were already rendered later in the timeline.
+            ("sub-clear-on-seek", "yes"),
             // Keep subtitles inside the video image, never in the letterbox area,
             // so sub-pos maps predictably onto the displayed video height.
             ("sub-use-margins", "no"),
