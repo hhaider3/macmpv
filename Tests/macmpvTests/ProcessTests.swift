@@ -56,6 +56,29 @@ struct ProcessTests {
         #expect(completions == 0)
     }
 
+    @Test @MainActor
+    func torrentSwitchReusesProcessAndStopKeepsDownloads() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("macmpv-tests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = try executable(in: directory, script: "exec /bin/sleep 30\n")
+        let helper = MagnetStream.Helper(executableURL: executable, prefixArguments: [], nodeExecutableURL: executable, webTorrentModuleURL: executable)
+        let downloads = directory.appendingPathComponent("saved")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let savedFile = downloads.appendingPathComponent("movie.mp4")
+        let bytes = Data("saved video".utf8)
+        try bytes.write(to: savedFile)
+        let stream = MagnetStream(helper: helper, downloadDirectory: downloads)
+        defer { stream.stop() }
+        let source = URL(string: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789")!
+        stream.start(from: source, selectedFileIndex: 0) { _ in }
+        let original = try #require(stream.process)
+        stream.start(from: source, selectedFileIndex: 1) { _ in }
+        #expect(stream.process === original)
+        #expect(original.isRunning)
+        stream.stop()
+        #expect(try Data(contentsOf: savedFile) == bytes)
+    }
+
     @Test func probeDrainsLargeStderrAndDecodesMetadata() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("macmpv-tests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }

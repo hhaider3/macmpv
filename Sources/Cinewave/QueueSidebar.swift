@@ -107,6 +107,10 @@ struct QueueSidebar: View {
 
             if !player.queue.isEmpty {
                 Menu {
+                    Button("Show Torrent Downloads", systemImage: "folder") {
+                        player.showTorrentDownloads()
+                    }
+                    Divider()
                     Button("Clear Queue", role: .destructive) {
                         player.clearQueue()
                     }

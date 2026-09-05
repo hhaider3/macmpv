@@ -315,7 +315,7 @@ final class PlayerModel {
         engineTitle = nil
         isLoading = true
         let key = persistenceKey(for: item)
-        pendingResumePosition = MediaSupport.isTorrentSource(item.url) ? nil : rememberedPositions[key]
+        pendingResumePosition = rememberedPositions[key]
         let markers = rememberedMarkers[key]
         introEndMarker = markers?.introEnd
         outroStartMarker = markers?.outroStart
@@ -571,6 +571,16 @@ final class PlayerModel {
         engine.stop()
     }
 
+    func showTorrentDownloads() {
+        let directory = magnetStream.downloadDirectory
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(directory)
+        } catch {
+            errorMessage = "Could not open torrent downloads: \(error.localizedDescription)"
+        }
+    }
+
     func toggleFullscreen() {
         NSApp.keyWindow?.toggleFullScreen(nil)
     }
@@ -686,7 +696,6 @@ final class PlayerModel {
             }
 
             let itemID = currentItem.id
-            pendingResumePosition = nil
             engine.stop()
             isPlaying = false
             magnetStream.start(
@@ -753,12 +762,7 @@ final class PlayerModel {
                 // Start with the first naturally sorted media file. Every expanded
                 // row gets a fresh identity so SwiftUI cannot retain the placeholder
                 // row at an unrelated position in the newly resolved file list.
-                self.currentID = expandedItems[0].id
-                self.duration = 0
-                self.engineTitle = nil
-                self.audioTracks = []
-                self.subtitleTracks = []
-                self.loadCurrentItem()
+                self.play(expandedItems[0])
 
             case .failure(let error):
                 self.isLoading = false
@@ -956,7 +960,7 @@ final class PlayerModel {
                 goNext()
             } else {
                 isPlaying = false
-                magnetStream.stop()
+                // Keep downloading the remaining files while the app is open.
             }
         }
     }

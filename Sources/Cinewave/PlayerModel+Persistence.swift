@@ -13,9 +13,9 @@ extension PlayerModel {
     }
 
     func rememberCurrentProgress(saveImmediately: Bool) {
-        // Magnet streams are ephemeral; their localhost URL changes every session, so
-        // there is nothing meaningful to resume or persist.
-        guard let currentItem, !MediaSupport.isTorrentSource(currentItem.url) else { return }
+        // Torrent entries use the source and original file index, not the
+        // temporary HTTP URL, so their saved playback position is stable too.
+        guard let currentItem else { return }
         let key = persistenceKey(for: currentItem)
         var didFinishEntry = false
         if position >= 5, duration <= 0 || position < duration - 10 {

@@ -1,8 +1,8 @@
 import Foundation
 
-// Per-stream scratch directory prefix inside the system temp folder. Directory
-// names continue with "<pid>-<uuid>" so cleanup can attribute them to a process.
-private let magnetDirectoryPrefix = "macmpv-magnet-"
+// Session scripts and metadata probes live in temp; playback data never does.
+// A new prefix keeps cleanup away from any legacy video download directories.
+private let torrentSessionDirectoryPrefix = "macmpv-torrent-session-"
 
 // Nonisolated async functions run on the global concurrent executor (SE-0338),
 // which keeps the 150 ms capture-file poll and log reads off the main actor.
@@ -42,15 +42,31 @@ final class MagnetStream {
     private let readFile: @Sendable (URL) async -> Data?
     private var streamWaitTask: Task<Void, Never>?
     private var temporaryDirectory: URL?
+    private var activeIdentifier: String?
+    let downloadDirectory: URL
+
+    private struct Selection: Encodable {
+        let requestID: UUID
+        let index: Int?
+    }
+
+    private struct StreamResponse: Decodable {
+        let requestID: UUID
+        let url: URL
+    }
 
     init(
         helper: Helper? = nil,
+        downloadDirectory: URL? = nil,
         readFile: @escaping @Sendable (URL) async -> Data? = readFileData
     ) {
         self.helperOverride = helper
+        self.downloadDirectory = downloadDirectory ?? FileManager.default
+            .urls(for: .moviesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("macmpv/Torrents", isDirectory: true)
         self.readFile = readFile
-        // stop() removes the scratch directory on ordinary exits, but a hard crash
-        // leaves it behind with a partial download. Sweep leftovers at startup.
+        // Remove abandoned session scripts after a crash. Durable downloads live
+        // under Movies and are never included in this sweep.
         // The sweep races this run's first stream (it is asynchronous) and may run
         // alongside other macmpv instances, so a directory is removed only when it
         // provably belongs to a dead process — never merely because it matches.
@@ -83,7 +99,7 @@ final class MagnetStream {
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                magnetDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+                torrentSessionDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
                 isDirectory: true
             )
         let manifestURL = directory.appendingPathComponent("torrent-files.json")
@@ -112,7 +128,8 @@ final class MagnetStream {
             helper.webTorrentModuleURL.path,
             torrentIdentifier,
             manifestURL.path,
-            downloadURL.path
+            downloadURL.path,
+            downloadDirectory.path
         ]
         var environment = ProcessInfo.processInfo.environment
         let compatibilityOption = "--import=\(bootstrapURL.absoluteString)"
@@ -185,7 +202,7 @@ final class MagnetStream {
         let currentPID = ProcessInfo.processInfo.processIdentifier
         for url in contents {
             let name = url.lastPathComponent
-            guard name.hasPrefix(magnetDirectoryPrefix),
+            guard name.hasPrefix(torrentSessionDirectoryPrefix),
                   isStaleDirectory(url, name: name, currentPID: currentPID) else { continue }
             try? fileManager.removeItem(at: url)
         }
@@ -197,7 +214,7 @@ final class MagnetStream {
     /// last group falls back to a conservative age threshold so leftovers from
     /// pre-PID app versions still get cleaned eventually.
     private nonisolated static func isStaleDirectory(_ url: URL, name: String, currentPID: pid_t) -> Bool {
-        let remainder = name.dropFirst(magnetDirectoryPrefix.count)
+        let remainder = name.dropFirst(torrentSessionDirectoryPrefix.count)
         if let pidText = remainder.split(separator: "-").first, let ownerPID = Int32(pidText), ownerPID > 0 {
             if ownerPID == currentPID { return false }
             // kill(pid, 0) probes existence: 0 or EPERM (another user's live process)
@@ -216,90 +233,78 @@ final class MagnetStream {
         selectedFileIndex: Int? = nil,
         completion: @escaping @MainActor (Result<URL, StreamError>) -> Void
     ) {
-        stop()
-
         if let selectedFileIndex, selectedFileIndex < 0 {
             completion(.failure(.invalidFile))
             return
         }
-
-        let torrentIdentifier: String
+        let identifier: String
         do {
-            torrentIdentifier = try Self.torrentIdentifier(from: source)
+            identifier = try Self.torrentIdentifier(from: source)
         } catch {
             completion(.failure(.invalidFile))
             return
         }
 
+        // Keep the torrent client and its verified piece map alive while the
+        // user switches files. The response carries the request identity so an
+        // old stream URL cannot be mistaken for the newly selected video.
+        if activeIdentifier == identifier, let process, process.isRunning,
+           let directory = temporaryDirectory {
+            streamWaitTask?.cancel()
+            requestID = UUID()
+            do {
+                try writeSelection(selectedFileIndex, in: directory)
+                waitForStream(process: process, directory: directory, completion: completion)
+            } catch {
+                completion(.failure(.helperFailed(error.localizedDescription)))
+            }
+            return
+        }
+        stop()
         guard let helper = helperOverride ?? Self.resolveHelper() else {
             completion(.failure(.helperUnavailable))
             return
         }
-
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                magnetDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        let captureURL = directory.appendingPathComponent("stream-url")
-        let shimURL = directory.appendingPathComponent("mpv")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            torrentSessionDirectoryPrefix + "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let scriptURL = directory.appendingPathComponent("torrent-stream.mjs")
         let logURL = directory.appendingPathComponent("webtorrent.log")
-        let loaderURL = directory.appendingPathComponent("webtorrent-loader.mjs")
         let bootstrapURL = directory.appendingPathComponent("webtorrent-bootstrap.mjs")
-        let downloadURL = directory.appendingPathComponent("download", isDirectory: true)
-
+        let extensions = MediaSupport.extensions.subtracting(["torrent", "magnet", "m3u", "m3u8"]).sorted()
+        let extensionsJSON: String
         do {
+            extensionsJSON = String(decoding: try JSONEncoder().encode(extensions), as: UTF8.self)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(at: downloadURL, withIntermediateDirectories: true)
-            try Self.writeCaptureShim(to: shimURL)
-            try Self.writeCompatibilityLoader(to: loaderURL, bootstrapURL: bootstrapURL)
+            try TorrentDownloadRuntime.write(to: scriptURL)
+            try Self.writeCompatibilityLoader(
+                to: directory.appendingPathComponent("webtorrent-loader.mjs"), bootstrapURL: bootstrapURL
+            )
+            try writeSelection(selectedFileIndex, in: directory)
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
         } catch {
+            try? FileManager.default.removeItem(at: directory)
             completion(.failure(.helperFailed(error.localizedDescription)))
             return
         }
-
         let process = Process()
-        process.executableURL = helper.executableURL
-        var arguments = helper.prefixArguments + [
-            torrentIdentifier,
-            "--mpv",
-            "--not-on-top",
-            "--no-quit",
-            "--out",
-            downloadURL.path,
-            "--quiet"
+        process.executableURL = helper.nodeExecutableURL
+        process.arguments = [
+            scriptURL.path, helper.webTorrentModuleURL.path, identifier,
+            downloadDirectory.path, directory.appendingPathComponent("stream-url").path,
+            directory.appendingPathComponent("selection.json").path,
+            extensionsJSON
         ]
-        if let selectedFileIndex {
-            arguments.append(contentsOf: ["--select", String(selectedFileIndex)])
-        }
-        process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
-        let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
-        let helperDirectory = helper.executableURL.deletingLastPathComponent().path
-        environment["PATH"] = [
-            directory.path,
-            helperDirectory,
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            existingPath
-        ].joined(separator: ":")
-        environment["MACMPV_MAGNET_URL_FILE"] = captureURL.path
-        let compatibilityOption = "--import=\(bootstrapURL.absoluteString)"
-        if let nodeOptions = environment["NODE_OPTIONS"], !nodeOptions.isEmpty {
-            environment["NODE_OPTIONS"] = "\(nodeOptions) \(compatibilityOption)"
-        } else {
-            environment["NODE_OPTIONS"] = compatibilityOption
-        }
+        environment["NODE_OPTIONS"] = [environment["NODE_OPTIONS"], "--import=\(bootstrapURL.absoluteString)"]
+            .compactMap { $0 }.joined(separator: " ")
         process.environment = environment
         let logHandle = try? FileHandle(forWritingTo: logURL)
         defer { try? logHandle?.close() }
-        // WebTorrent prints some fatal errors with console.log, so capture stdout and
-        // stderr together instead of reducing every failure to an unexplained status 1.
         process.standardOutput = logHandle ?? FileHandle.nullDevice
         process.standardError = logHandle ?? FileHandle.nullDevice
         process.qualityOfService = .userInitiated
-
         do {
             try process.run()
         } catch {
@@ -307,45 +312,49 @@ final class MagnetStream {
             completion(.failure(.helperFailed(error.localizedDescription)))
             return
         }
-
-        let requestID = self.requestID
         self.process = process
         temporaryDirectory = directory
+        activeIdentifier = identifier
+        waitForStream(process: process, directory: directory, completion: completion)
+    }
+
+    private func writeSelection(_ index: Int?, in directory: URL) throws {
+        try JSONEncoder().encode(Selection(requestID: requestID, index: index))
+            .write(to: directory.appendingPathComponent("selection.json"), options: .atomic)
+    }
+
+    private func waitForStream(
+        process: Process, directory: URL,
+        completion: @escaping @MainActor (Result<URL, StreamError>) -> Void
+    ) {
+        let requestID = self.requestID
         streamWaitTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let deadline = ContinuousClock.now + .seconds(90)
-
+            // Existing pieces must be verified before a resumed stream is ready.
+            let deadline = ContinuousClock.now + .seconds(600)
             while !Task.isCancelled, ContinuousClock.now < deadline {
-                let data = await readFile(captureURL)
+                let data = await readFile(directory.appendingPathComponent("stream-url"))
                 guard !Task.isCancelled, self.requestID == requestID else { return }
                 if let data,
-                   let rawValue = String(data: data, encoding: .utf8),
-                   let streamURL = URL(
-                    dataRepresentation: Data(
-                        rawValue.trimmingCharacters(in: .whitespacesAndNewlines).utf8
-                    ),
-                    relativeTo: nil
-                   ),
-                   streamURL.scheme == "http" || streamURL.scheme == "https" {
+                   let response = try? JSONDecoder().decode(StreamResponse.self, from: data),
+                   response.requestID == requestID,
+                   response.url.scheme == "http", response.url.host == "127.0.0.1" {
                     streamWaitTask = nil
-                    completion(.success(streamURL))
+                    completion(.success(response.url))
                     return
                 }
-
                 if !process.isRunning {
-                    let detail = process.terminationStatus == 0
-                        ? "The torrent did not expose a playable media file."
-                        : "The helper exited with status \(process.terminationStatus)."
-                    let message = await Self.appendingLogTail(detail, logURL: logURL)
+                    let message = await Self.appendingLogTail(
+                        "The torrent helper exited with status \(process.terminationStatus).",
+                        logURL: directory.appendingPathComponent("webtorrent.log")
+                    )
                     guard !Task.isCancelled, self.requestID == requestID else { return }
                     self.stop()
                     completion(.failure(.helperFailed(message)))
                     return
                 }
-
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: .milliseconds(100))
             }
-
             guard !Task.isCancelled, self.requestID == requestID else { return }
             self.stop()
             completion(.failure(.timedOut))
@@ -361,6 +370,7 @@ final class MagnetStream {
         let directoryToRemove = temporaryDirectory
         process = nil
         temporaryDirectory = nil
+        activeIdentifier = nil
 
         if let processToStop, processToStop.isRunning {
             processToStop.terminationHandler = { _ in
@@ -370,9 +380,8 @@ final class MagnetStream {
             processToStop.terminate()
         }
 
-        // Unlink cached pieces immediately so quitting the app does not leave a
-        // completed or partial torrent behind. Retry after process termination in
-        // case WebTorrent was creating a file at the same moment.
+        // Only scripts, logs, and metadata-probe scratch files are temporary.
+        // Video data is stored separately in downloadDirectory and is never deleted.
         if let directoryToRemove {
             try? FileManager.default.removeItem(at: directoryToRemove)
         }
@@ -418,38 +427,35 @@ final class MagnetStream {
         return magnet
     }
 
-    private static func writeCaptureShim(to url: URL) throws {
-        // webtorrent-cli launches its mpv player via `sh -c`, passing the resolved
-        // stream URL as one of the arguments. Detect it by scheme rather than relying
-        // on it being the final argument, so ordering or extra flags can't break it.
-        let script = """
-        #!/bin/sh
-        destination=${MACMPV_MAGNET_URL_FILE:?}
-        stream_url=
-        for argument do
-            case "$argument" in
-                http://*|https://*)
-                    stream_url=$argument
-                    ;;
-            esac
-        done
-        if [ -n "$stream_url" ]; then
-            printf '%s' "$stream_url" > "$destination"
-        fi
-        """
-        try Data(script.utf8).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-    }
-
     private static func writeMetadataScript(to url: URL) throws {
         let script = """
         import fs from 'node:fs/promises'
         import { pathToFileURL } from 'node:url'
+        import { createRequire } from 'node:module'
+        import path from 'node:path'
 
-        const [modulePath, torrentIdentifier, outputPath, downloadPath] = process.argv.slice(2)
+        const [modulePath, torrentIdentifier, outputPath, downloadPath, downloadRoot] = process.argv.slice(2)
 
         try {
           const { default: WebTorrent } = await import(pathToFileURL(modulePath).href)
+          const require = createRequire(pathToFileURL(modulePath))
+          async function resolveDependency(name) {
+            try { return require.resolve(name) } catch (error) {
+              if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error
+              for (const directory of require.resolve.paths(name)) {
+                const entry = path.join(directory, name, 'index.js')
+                try { await fs.access(entry); return entry } catch {}
+              }
+              throw error
+            }
+          }
+          const { default: parseTorrent } = await import(pathToFileURL(await resolveDependency('parse-torrent')).href)
+          const input = torrentIdentifier.toLowerCase().startsWith('magnet:')
+            ? torrentIdentifier : await fs.readFile(torrentIdentifier)
+          const parsed = await parseTorrent(input)
+          let source = input
+          try { source = await fs.readFile(path.join(downloadRoot, '.metadata', `${parsed.infoHash}.torrent`)) }
+          catch (error) { if (error.code !== 'ENOENT') throw error }
           const client = new WebTorrent()
           let finished = false
 
@@ -465,7 +471,7 @@ final class MagnetStream {
           }
 
           client.on('error', fail)
-          const torrent = client.add(torrentIdentifier, { path: downloadPath, deselect: true })
+          const torrent = client.add(source, { path: downloadPath, deselect: true })
           torrent.on('warning', warning => console.error(warning?.message || String(warning)))
           torrent.once('ready', async () => {
             if (finished) return
