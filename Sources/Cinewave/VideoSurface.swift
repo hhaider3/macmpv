@@ -12,7 +12,6 @@ final class MPVGLView: NSOpenGLView {
     var onViewGeometryChanged: (() -> Void)?
     private weak var observedWindow: NSWindow?
     private var consecutiveNoFrameCount = 0
-    private var pendingSingleClick: DispatchWorkItem?
 
     // macOS 14+ displayLink – automatically pauses when the view is hidden or off-screen.
     private var displayLink: CADisplayLink?
@@ -113,24 +112,14 @@ final class MPVGLView: NSOpenGLView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if event.clickCount >= 2 {
-            pendingSingleClick?.cancel()
-            pendingSingleClick = nil
+        // Respond on release, just like the play button. If a second click
+        // follows, undo the first toggle before changing fullscreen so the
+        // double-click gesture preserves whether playback was paused.
+        guard event.clickCount == 1 || event.clickCount == 2 else { return }
+        onSingleClick?()
+        if event.clickCount == 2 {
             onDoubleClick?()
-            return
         }
-
-        guard event.clickCount == 1 else { return }
-        pendingSingleClick?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.pendingSingleClick = nil
-            self?.onSingleClick?()
-        }
-        pendingSingleClick = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + NSEvent.doubleClickInterval,
-            execute: workItem
-        )
     }
 
     // MARK: - Cursor auto-hide (full screen)
@@ -255,8 +244,6 @@ final class MPVGLView: NSOpenGLView {
     }
 
     private func teardownDisplayLink() {
-        pendingSingleClick?.cancel()
-        pendingSingleClick = nil
         cancelCursorHide()
         displayLink?.invalidate()
         displayLink = nil
