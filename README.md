@@ -189,7 +189,7 @@ Releases are automated: `make release` (or `make release VERSION=1.3` to bump
 Info.plist first — the bump is committed so the tag points at the version
 built) builds both dmgs, patches the site's download URLs, sizes, and SHA-256,
 and publishes both GitHub releases (`vX.Y` and `vX.Yt`) via the `gh` CLI — see
-`Scripts/release.sh`. It refuses a dirty working tree (the tags point at HEAD)
+`Scripts/release.sh`. It refuses a dirty working tree, pushes the exact source commit, and explicitly targets that commit for both tags
 and leaves the site changes for you to commit and push, which deploys them via
 Cloudflare Pages.
 
@@ -232,9 +232,22 @@ possible in that configuration.
 
 macmpv wraps `libmpv` via `Sources/CMPV` (pkg-config `mpv`) and renders with `MPVEngine` / `MPVGLView` (`Sources/Cinewave/MPVEngine.swift`, `Sources/Cinewave/VideoSurface.swift`). Metadata is probed out-of-process with `ffprobe` (`Sources/Cinewave/MediaProbe.swift`).
 
-Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`. Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
+Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`. Natural EOF is consumed once from mpv’s `eof-reached` property, including when the last frame stays visible. Queue operations and persistence live in `PlayerModel+Queue.swift` and `PlayerModel+Persistence.swift`; their stored data format is unchanged. Metadata probes run at most two child processes at once, with blocking pipe reads isolated from Swift concurrency workers. Torrent requests verify their identity after asynchronous reads so canceled work cannot stop a newer helper.
+
+Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
 ## Credits
 
 - [mpv](https://mpv.io/) — media playback engine (`libmpv`)
 - [FFmpeg](https://ffmpeg.org/) — `ffprobe` for metadata probing (`ffmpeg` Homebrew package)
+
+## Tests
+
+Run `make test` for Swift regression tests and static website validation. The Swift
+suite covers EOF and repeat modes, stop/error handling, queue persistence, stale
+torrent callbacks, large stderr output, and concurrent metadata timeouts. Process
+tests use local fake helpers and do not contact torrent peers or remote media.
+
+The website preserves its static Cloudflare Pages deployment: pushing `main`
+publishes `site/`. Its native download picker and FAQ remain usable without
+JavaScript; the layout adapts to small screens and respects reduced motion.

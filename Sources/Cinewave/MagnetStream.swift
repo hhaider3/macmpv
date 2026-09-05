@@ -36,11 +36,19 @@ final class MagnetStream {
         }
     }
 
-    private var process: Process?
+    private(set) var process: Process?
+    private var requestID = UUID()
+    private let helperOverride: Helper?
+    private let readFile: @Sendable (URL) async -> Data?
     private var streamWaitTask: Task<Void, Never>?
     private var temporaryDirectory: URL?
 
-    init() {
+    init(
+        helper: Helper? = nil,
+        readFile: @escaping @Sendable (URL) async -> Data? = readFileData
+    ) {
+        self.helperOverride = helper
+        self.readFile = readFile
         // stop() removes the scratch directory on ordinary exits, but a hard crash
         // leaves it behind with a partial download. Sweep leftovers at startup.
         // The sweep races this run's first stream (it is asynchronous) and may run
@@ -68,7 +76,7 @@ final class MagnetStream {
             return
         }
 
-        guard let helper = Self.resolveHelper() else {
+        guard let helper = helperOverride ?? Self.resolveHelper() else {
             completion(.failure(.helperUnavailable))
             return
         }
@@ -114,9 +122,10 @@ final class MagnetStream {
             environment["NODE_OPTIONS"] = compatibilityOption
         }
         process.environment = environment
-        let logHandle = (try? FileHandle(forWritingTo: logURL)) ?? FileHandle.nullDevice
-        process.standardOutput = logHandle
-        process.standardError = logHandle
+        let logHandle = try? FileHandle(forWritingTo: logURL)
+        defer { try? logHandle?.close() }
+        process.standardOutput = logHandle ?? FileHandle.nullDevice
+        process.standardError = logHandle ?? FileHandle.nullDevice
         process.qualityOfService = .userInitiated
 
         do {
@@ -127,6 +136,7 @@ final class MagnetStream {
             return
         }
 
+        let requestID = self.requestID
         self.process = process
         temporaryDirectory = directory
         streamWaitTask = Task { @MainActor [weak self] in
@@ -134,7 +144,9 @@ final class MagnetStream {
             let deadline = ContinuousClock.now + .seconds(90)
 
             while !Task.isCancelled, ContinuousClock.now < deadline {
-                if let data = await readFileData(at: manifestURL),
+                let data = await readFile(manifestURL)
+                guard !Task.isCancelled, self.requestID == requestID else { return }
+                if let data,
                    let manifest = try? JSONDecoder().decode(TorrentManifest.self, from: data),
                    !manifest.files.isEmpty {
                     streamWaitTask = nil
@@ -148,6 +160,7 @@ final class MagnetStream {
                         ? "The torrent did not expose any files."
                         : "The metadata helper exited with status \(process.terminationStatus)."
                     let message = await Self.appendingLogTail(detail, logURL: logURL)
+                    guard !Task.isCancelled, self.requestID == requestID else { return }
                     self.stop()
                     completion(.failure(.helperFailed(message)))
                     return
@@ -156,7 +169,7 @@ final class MagnetStream {
                 try? await Task.sleep(for: .milliseconds(150))
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.requestID == requestID else { return }
             self.stop()
             completion(.failure(.timedOut))
         }
@@ -218,7 +231,7 @@ final class MagnetStream {
             return
         }
 
-        guard let helper = Self.resolveHelper() else {
+        guard let helper = helperOverride ?? Self.resolveHelper() else {
             completion(.failure(.helperUnavailable))
             return
         }
@@ -279,11 +292,12 @@ final class MagnetStream {
             environment["NODE_OPTIONS"] = compatibilityOption
         }
         process.environment = environment
-        let logHandle = (try? FileHandle(forWritingTo: logURL)) ?? FileHandle.nullDevice
+        let logHandle = try? FileHandle(forWritingTo: logURL)
+        defer { try? logHandle?.close() }
         // WebTorrent prints some fatal errors with console.log, so capture stdout and
         // stderr together instead of reducing every failure to an unexplained status 1.
-        process.standardOutput = logHandle
-        process.standardError = logHandle
+        process.standardOutput = logHandle ?? FileHandle.nullDevice
+        process.standardError = logHandle ?? FileHandle.nullDevice
         process.qualityOfService = .userInitiated
 
         do {
@@ -294,6 +308,7 @@ final class MagnetStream {
             return
         }
 
+        let requestID = self.requestID
         self.process = process
         temporaryDirectory = directory
         streamWaitTask = Task { @MainActor [weak self] in
@@ -301,7 +316,9 @@ final class MagnetStream {
             let deadline = ContinuousClock.now + .seconds(90)
 
             while !Task.isCancelled, ContinuousClock.now < deadline {
-                if let data = await readFileData(at: captureURL),
+                let data = await readFile(captureURL)
+                guard !Task.isCancelled, self.requestID == requestID else { return }
+                if let data,
                    let rawValue = String(data: data, encoding: .utf8),
                    let streamURL = URL(
                     dataRepresentation: Data(
@@ -320,6 +337,7 @@ final class MagnetStream {
                         ? "The torrent did not expose a playable media file."
                         : "The helper exited with status \(process.terminationStatus)."
                     let message = await Self.appendingLogTail(detail, logURL: logURL)
+                    guard !Task.isCancelled, self.requestID == requestID else { return }
                     self.stop()
                     completion(.failure(.helperFailed(message)))
                     return
@@ -328,13 +346,14 @@ final class MagnetStream {
                 try? await Task.sleep(for: .milliseconds(150))
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.requestID == requestID else { return }
             self.stop()
             completion(.failure(.timedOut))
         }
     }
 
     func stop() {
+        requestID = UUID()
         streamWaitTask?.cancel()
         streamWaitTask = nil
 
@@ -557,7 +576,7 @@ final class MagnetStream {
 
     /// How to launch WebTorrent CLI: either a bundled node runtime plus the CLI
     /// script (the "+ Torrents" dmg variant), or a plain `webtorrent` executable.
-    private struct Helper {
+    struct Helper {
         let executableURL: URL
         let prefixArguments: [String]
         let nodeExecutableURL: URL

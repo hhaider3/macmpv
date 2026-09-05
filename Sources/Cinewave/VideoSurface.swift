@@ -169,16 +169,18 @@ final class MPVGLView: NSOpenGLView {
         cursorIdleTimer = nil
         guard let window, window.styleMask.contains(.fullScreen) else { return }
         cursorIdleTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in
-            guard let self, let window = self.window,
-                  window.isKeyWindow,
-                  window.styleMask.contains(.fullScreen) else { return }
-            // Never hide while the cursor is over the player controls strip,
-            // and never hide a cursor that has left this window — cursor
-            // hiding is global state on macOS.
-            guard NSMouseInRect(NSEvent.mouseLocation, window.frame, false),
-                  window.mouseLocationOutsideOfEventStream.y > self.cursorVisibleZoneHeight
-            else { return }
-            NSCursor.setHiddenUntilMouseMoves(true)
+            MainActor.assumeIsolated {
+                guard let self, let window = self.window,
+                      window.isKeyWindow,
+                      window.styleMask.contains(.fullScreen) else { return }
+                // Never hide while the cursor is over the player controls strip,
+                // and never hide a cursor that has left this window — cursor
+                // hiding is global state on macOS.
+                guard NSMouseInRect(NSEvent.mouseLocation, window.frame, false),
+                      window.mouseLocationOutsideOfEventStream.y > self.cursorVisibleZoneHeight
+                else { return }
+                NSCursor.setHiddenUntilMouseMoves(true)
+            }
         }
     }
 

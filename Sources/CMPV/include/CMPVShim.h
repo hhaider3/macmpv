@@ -144,6 +144,12 @@ static inline int cinewave_mpv_event_end_file_error(const mpv_event *event) {
     return end_file ? end_file->error : 0;
 }
 
+static inline int cinewave_mpv_event_ended_at_eof(const mpv_event *event) {
+    if (!event || event->event_id != MPV_EVENT_END_FILE) return 0;
+    const mpv_event_end_file *end_file = event->data;
+    return end_file && end_file->reason == MPV_END_FILE_REASON_EOF;
+}
+
 static inline int cinewave_mpv_event_shutdown(void) {
     return (int)MPV_EVENT_SHUTDOWN;
 }

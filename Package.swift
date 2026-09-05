@@ -28,6 +28,7 @@ let package = Package(
                 .linkedFramework("OpenGL"),
                 .linkedFramework("QuartzCore")
             ]
-        )
+        ),
+        .testTarget(name: "macmpvTests", dependencies: ["macmpv"])
     ]
 )

@@ -130,19 +130,19 @@ struct ContentView: View {
                     windowedControls
                 }
 
-                if player.isLoading {
-                    ProgressView()
-                        .controlSize(.large)
-                        .padding(18)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
+            }
+            if player.isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                    .padding(18)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
 
-                if let error = player.errorMessage {
-                    VStack {
-                        ErrorToast(message: error, dismiss: player.dismissError)
-                            .padding(.top, 54)
-                        Spacer()
-                    }
+            if let error = player.errorMessage {
+                VStack {
+                    ErrorToast(message: error, dismiss: player.dismissError)
+                        .padding(.top, 54)
+                    Spacer()
                 }
             }
         }

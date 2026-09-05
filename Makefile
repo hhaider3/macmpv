@@ -5,7 +5,7 @@ BUILD_LOG := .build/last-build.log
 # real compile failure: fail once, with the output shown exactly once.
 SANDBOX_ERROR := sandbox_apply: Operation not permitted
 
-.PHONY: build run app dmg dmg-torrents release clean
+.PHONY: build test run app dmg dmg-torrents release clean
 
 build:
 	@mkdir -p .build
@@ -17,6 +17,10 @@ build:
 	    fi; \
 	    exit 1; \
 	}
+
+test:
+	swift test
+	python3 Scripts/validate-site.py
 
 run:
 	@mkdir -p .build

@@ -2,6 +2,18 @@ import Darwin
 import Foundation
 
 actor MediaProbe {
+    private let executable: URL?
+    private let timeout: Duration
+    private let maximumConcurrentProbes: Int
+    private var activeProbes = 0
+    private var waitingProbes: [CheckedContinuation<Void, Never>] = []
+
+    init(executable: URL? = nil, timeout: Duration = .seconds(8), maximumConcurrentProbes: Int = 2) {
+        self.executable = executable ?? Self.ffprobeExecutable
+        self.timeout = timeout
+        self.maximumConcurrentProbes = max(1, maximumConcurrentProbes)
+    }
+
     private struct ProbeOutput: Decodable {
         let streams: [Stream]?
         let format: Format?
@@ -44,7 +56,20 @@ actor MediaProbe {
     // MARK: - Public API
 
     func inspect(_ url: URL) async -> MediaMetadata? {
-        guard let ffprobe = Self.ffprobeExecutable else { return nil }
+        guard let ffprobe = executable, !Task.isCancelled else { return nil }
+        if activeProbes >= maximumConcurrentProbes {
+            await withCheckedContinuation { waitingProbes.append($0) }
+        } else {
+            activeProbes += 1
+        }
+        defer {
+            if waitingProbes.isEmpty {
+                activeProbes -= 1
+            } else {
+                waitingProbes.removeFirst().resume()
+            }
+        }
+        guard !Task.isCancelled else { return nil }
 
         let process = Process()
         let outputPipe = Pipe()
@@ -76,7 +101,7 @@ actor MediaProbe {
             }
             group.addTask {
                 // 8s for local files, enough for remote / HLS without hanging indefinitely.
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                try? await Task.sleep(for: self.timeout)
                 if process.isRunning {
                     process.terminate() // SIGTERM
                     try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s grace
@@ -168,23 +193,10 @@ actor MediaProbe {
     // MARK: - Collection helpers
 
     private func collectResult(process: Process, outputPipe: Pipe, errorPipe: Pipe) async -> MediaMetadata? {
-        // Drain stdout and stderr concurrently so neither pipe fills and deadlocks.
-        // readToEnd() is async and suspends the actor without blocking the cooperative thread.
-        async let stdoutDataTask: Data = {
-            do {
-                return try await outputPipe.fileHandleForReading.readToEnd() ?? Data()
-            } catch {
-                return Data()
-            }
-        }()
-
-        async let stderrDrainTask: Data = {
-            do {
-                return try await errorPipe.fileHandleForReading.readToEnd() ?? Data()
-            } catch {
-                return Data()
-            }
-        }()
+        // FileHandle reads block. Keep them on GCD threads, with at most two
+        // probes active, so neither pipe nor Swift's cooperative executor stalls.
+        async let stdoutDataTask = Self.drain(outputPipe.fileHandleForReading)
+        async let stderrDrainTask = Self.drain(errorPipe.fileHandleForReading)
 
         async let exitStatusTask: Int32 = {
             await self.waitForExit(process)
@@ -199,6 +211,15 @@ actor MediaProbe {
             return Self.metadata(from: probe)
         } catch {
             return nil
+        }
+    }
+
+    private nonisolated static func drain(_ handle: FileHandle) async -> Data {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                defer { try? handle.close() }
+                continuation.resume(returning: (try? handle.readToEnd()) ?? Data())
+            }
         }
     }
 

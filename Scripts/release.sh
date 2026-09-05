@@ -21,6 +21,7 @@ VERSION=${1:-$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "invalid version '$VERSION'"
 
 cd "$PROJECT_DIR"
+[[ "$(uname -m)" == "arm64" ]] || die "website releases must be built on Apple Silicon"
 
 command -v gh >/dev/null 2>&1 || die "gh CLI required (brew install gh)"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated (run: gh auth login)"
@@ -32,7 +33,7 @@ for tag in "v$VERSION" "v${VERSION}t"; do
 done
 
 if [[ -z "${FORCE:-}" ]]; then
-  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
+  [[ -z "$(git status --porcelain)" ]] || {
     git status --short
     die "uncommitted changes present (commit first, or FORCE=1 to ignore)"
   }
@@ -43,23 +44,28 @@ if [[ -n "${1:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d)" "$PLIST"
   # The release tags HEAD, so the bump must be part of pushed HEAD — commit it
-  # now and push (gh creates the tag at the remote HEAD, so an unpushed bump
-  # would leave the tag pointing at stale version metadata). Guarded so a rerun
+  # now; the explicit source push below makes this commit available to gh.
+  # Guarded so a rerun
   # after a mid-script failure skips the no-op empty commit. Site patches stay
   # uncommitted for the manual step.
   git add "$PLIST"
   if ! git diff --cached --quiet; then
     git commit -m "release: bump to $VERSION"
-    git push
   fi
 fi
+
+# Capture and publish the exact source commit before creating either tag.
+# gh otherwise defaults to the remote default branch, which can move mid-build.
+RELEASE_COMMIT=$(git rev-parse HEAD)
+git push origin HEAD
 
 echo "==> Building both dmg variants"
 zsh "$SCRIPT_DIR/package-dmg.sh"
 zsh "$SCRIPT_DIR/package-dmg.sh" torrents
 
-STD_DMG="dist/macmpv-${VERSION}-arm64.dmg"
-TOR_DMG="dist/macmpv-${VERSION}-arm64-torrents.dmg"
+ARCH=$(uname -m)
+STD_DMG="dist/macmpv-${VERSION}-${ARCH}.dmg"
+TOR_DMG="dist/macmpv-${VERSION}-${ARCH}-torrents.dmg"
 [[ -f "$STD_DMG" ]] || die "expected $STD_DMG missing"
 [[ -f "$TOR_DMG" ]] || die "expected $TOR_DMG missing"
 
@@ -69,44 +75,17 @@ echo "==> standard: $(basename $STD_DMG)  $STD_SHA"
 echo "==> torrents: $(basename $TOR_DMG)  $TOR_SHA"
 
 echo "==> Patching site/index.html"
-python3 - "$PROJECT_DIR/site/index.html" "$VERSION" "$STD_SHA" "$STD_DMG" "$TOR_DMG" <<'PY'
-import os, re, sys
-
-path, version, std_sha, std_dmg, tor_dmg = sys.argv[1:6]
-std_mb = round(os.path.getsize(std_dmg) / 1e6)
-tor_mb = round(os.path.getsize(tor_dmg) / 1e6)
-
-html = open(path).read()
-html, n_std_url = re.subn(
-    r'/releases/download/v[\w.]+/macmpv-[\d.]+-arm64\.dmg',
-    f'/releases/download/v{version}/macmpv-{version}-arm64.dmg', html)
-html, n_tor_url = re.subn(
-    r'/releases/download/v[\w.]+/macmpv-[\d.]+-arm64-torrents\.dmg',
-    f'/releases/download/v{version}t/macmpv-{version}-arm64-torrents.dmg', html)
-html, n_sha = re.subn(
-    r'(SHA-256 \(standard\)</span>\s*<code>)[0-9a-f]{64}',
-    r'\g<1>' + std_sha, html)
-html = re.sub(r'\b\d+ MB · add torrents later',
-              f'{std_mb} MB · add torrents later', html)
-html = re.sub(r'\b\d+ MB · WebTorrent bundled',
-              f'{tor_mb} MB · WebTorrent bundled', html)
-html = re.sub(r'(<span class="button-sub">)\d+ MB(</span>)',
-              rf'\g<1>{std_mb} MB\g<2>', html)
-
-for label, count in (('standard url', n_std_url),
-                     ('torrents url', n_tor_url),
-                     ('checksum', n_sha)):
-    if count == 0:
-        sys.exit(f'error: no {label} matches in site/index.html — layout changed?')
-open(path, 'w').write(html)
-PY
+python3 "$SCRIPT_DIR/update-downloads.py" "$PROJECT_DIR/site/index.html" "$VERSION" "$STD_SHA" "$STD_DMG" "$TOR_DMG"
+python3 "$SCRIPT_DIR/validate-site.py"
 
 echo "==> Publishing GitHub releases (standard first, then torrents)"
 gh release create "v$VERSION" "$STD_DMG" \
   --title "macmpv $VERSION" \
+  --target "$RELEASE_COMMIT" \
   --generate-notes
 gh release create "v${VERSION}t" "$TOR_DMG" \
   --title "macmpv ${VERSION}t — Torrents build" \
+  --target "$RELEASE_COMMIT" \
   --generate-notes
 
 echo ""

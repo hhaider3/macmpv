@@ -5,3 +5,5 @@ dist/
 *.xcuserstate
 .DS_Store
 opencode.json
+__pycache__/
+*.pyc

@@ -34,7 +34,7 @@ final class MPVEngine {
 
     enum Event: Sendable {
         case fileLoaded
-        case endFile(error: String?)
+        case endFile(reachedEOF: Bool, error: String?)
         case shutdown
     }
 
@@ -285,7 +285,8 @@ final class MPVEngine {
                 let error = errorCode < 0
                     ? cinewave_mpv_error_string(errorCode).map(String.init(cString:))
                     : nil
-                Task { @MainActor [weak self] in self?.onEvent?(.endFile(error: error)) }
+                let reachedEOF = cinewave_mpv_event_ended_at_eof(event) != 0
+                Task { @MainActor [weak self] in self?.onEvent?(.endFile(reachedEOF: reachedEOF, error: error)) }
             } else if eid == cinewave_mpv_event_shutdown() {
                 Task { @MainActor [weak self] in self?.onEvent?(.shutdown) }
                 shouldKeepRunning = false

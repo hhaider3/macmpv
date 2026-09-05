@@ -132,12 +132,18 @@ chmod 755 "$MACOS_DIR/ffprobe"
 # ---- Rewrite load commands to @rpath ----
 rewrite_refs() {
   local target=$1 old name
-  for old in "${(k)closure[@]}"; do
-    name=${old:t}
-    if refs_of "$target" | grep -Fxq "$old"; then
-      install_name_tool -change "$old" "@rpath/$name" "$target"
+  local -a changes
+  changes=()
+  # Inspect each binary once, then rewrite all relevant commands in one pass.
+  for old in $(refs_of "$target"); do
+    if [[ -n "${closure[$old]:-}" ]]; then
+      name=${old:t}
+      changes+=(-change "$old" "@rpath/$name")
     fi
   done
+  if (( ${#changes[@]} > 0 )); then
+    install_name_tool "${changes[@]}" "$target"
+  fi
 }
 
 add_rpath() {
@@ -200,24 +206,26 @@ fi
 for f in "$FRAMEWORKS_DIR"/*.dylib "$MACOS_DIR/ffprobe"; do
   codesign "${sign_flags[@]}" "$f"
 done
-# If the deep sign hits a pseudo-bundle directory it names, delete exactly that
-# subcomponent and retry; the smoke tests below are the runtime safety net.
-sign_attempts=0
-while true; do
-  if sign_output=$(codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR" 2>&1); then
-    break
-  fi
-  sign_attempts=$((sign_attempts + 1))
-  offender=$(printf '%s\n' "$sign_output" | sed -n 's/^In subcomponent: \(.*\)$/\1/p')
-  if [[ -z "$offender" || $sign_attempts -gt 25 ]]; then
-    echo "$sign_output" >&2
-    echo "error: codesign failed and no prunable subcomponent was named" >&2
-    exit 1
-  fi
-  echo "  pruning codesign offender: ${offender#$APP_DIR/}"
-  rm -rf "$offender"
-done
+# Sign executable helpers and native Node add-ons before sealing the app.
+# JavaScript package directories are resources, not disposable signing errors.
+if [[ "$MODE" == "torrents" ]]; then
+  while IFS= read -r -d '' native; do
+    if file -b "$native" | grep -q 'Mach-O'; then
+      codesign "${sign_flags[@]}" "$native"
+    fi
+  done < <(find "$WEBTORRENT_RESOURCES_DIR" -type f -print0)
+  codesign "${sign_flags[@]}" \
+    --entitlements "$PROJECT_DIR/Resources/webtorrent-entitlements.plist" \
+    "$HELPERS_DIR/webtorrent-node"
+fi
+codesign "${sign_flags[@]}" "$APP_DIR"
 codesign --verify --deep --strict "$APP_DIR"
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+  codesign --display --verbose=4 "$APP_DIR" 2>&1 | grep -q 'flags=.*runtime' || {
+    echo "error: application is missing hardened runtime" >&2
+    exit 1
+  }
+fi
 
 # ---- Verify no absolute Homebrew references remain ----
 for f in "$MACOS_DIR/macmpv" "$MACOS_DIR/ffprobe" "$FRAMEWORKS_DIR"/*.dylib; do
