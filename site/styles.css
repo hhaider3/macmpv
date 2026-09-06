@@ -740,7 +740,7 @@ main {
 .download-menu { display: block; }
 .download-menu summary { list-style: none; }
 .download-menu summary::-webkit-details-marker { display: none; }
-.download-options { left: 0; transform: none; min-width: min(320px, calc(100vw - 40px)); background: #141923; }
+.download-options { left: 0; transform: none; width: 320px; min-width: 0; max-width: calc(100vw - 40px); background: #141923; }
 .download-menu[open] .download-options { transform: none; }
 .option-meta { font-size: 13px; }
 .section { margin-top: 50px; padding-top: 64px; border-top: 1px solid var(--border); }
@@ -790,16 +790,34 @@ main {
     .hero h1 { font-size: clamp(48px, 12vw, 70px); }
     .hero-sub { font-size: 17px; }
     .hero-shot figcaption { flex-direction: column; gap: 3px; }
-    .hero-actions { gap: 10px; }
+    /* Expand in the page flow on phones so both choices fit without covering
+       the next action or extending past the viewport. Native details still
+       handles opening and closing when JavaScript is unavailable. */
+    .hero-actions { flex-direction: column; align-items: center; gap: 10px; }
+    .download-menu { width: 100%; max-width: 320px; }
+    .download-menu summary { display: flex; width: 100%; justify-content: center; }
+    .download-options {
+        position: static;
+        width: 100%;
+        max-width: none;
+        margin-top: 12px;
+        text-align: left;
+        transition: none;
+    }
+    .download-options a { min-width: 0; overflow-wrap: anywhere; }
     .hero-actions .button { padding-inline: 15px; }
     .section { margin-top: 48px; padding-top: 40px; }
     .showcase, .showcase-reverse { grid-template-columns: 1fr; }
     .showcase-reverse .showcase-copy { order: -1; }
     .section-download { padding: 32px 18px; }
+    .steps { grid-template-columns: minmax(0, 1fr); }
+    .step > div { min-width: 0; }
     .feature { padding: 22px 10px; }
     .feature-grid { grid-template-columns: 1fr; }
     .feature-icon { margin-bottom: 6px; }
-    .download-meta > .button { width: 100%; justify-content: center; }
+    .download-meta > .button { width: 100%; justify-content: center; flex-direction: column; gap: 3px; text-align: center; }
+    p code { overflow-wrap: anywhere; }
+    .brand, .github-link { min-height: 44px; }
     .callout { padding: 18px; }
     .footer { text-align: left; margin-top: 64px; }
 }
