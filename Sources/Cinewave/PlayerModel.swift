@@ -118,7 +118,12 @@ final class PlayerModel {
     }
 
     var displayTitle: String {
-        engineTitle ?? currentItem?.title ?? "macmpv"
+        // Torrent HTTP URLs end in a numeric file index. Use the known filename
+        // instead of mpv's title, which can be that index or stale during a switch.
+        if let torrentFile = currentItem?.torrentFile {
+            return torrentFile.name
+        }
+        return engineTitle ?? currentItem?.title ?? "macmpv"
     }
 
     var hasMedia: Bool {

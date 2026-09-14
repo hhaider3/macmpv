@@ -3,6 +3,39 @@ import Testing
 @testable import macmpv
 
 struct PlaybackTests {
+    @Test @MainActor func torrentTitleUsesFilenameAcrossPlaybackUpdatesAndFileSwitches() throws {
+        let suite = "macmpv-tests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = PlayerModel(defaults: defaults)
+        let source = URL(string: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789")!
+        let files = [
+            TorrentFile(index: 0, name: "Episode 01 [DD+].mkv", path: "Series/Episode 01 [DD+].mkv", length: 100),
+            TorrentFile(index: 7, name: "Episode 02 [日本語].mkv", path: "Series/Episode 02 [日本語].mkv", length: 100)
+        ]
+        let items = files.map { MediaItem(url: source, torrentFile: $0, groupKind: .torrent) }
+        let ordinary = MediaItem(url: URL(fileURLWithPath: "/tmp/movie.mkv"))
+        player.queue = items + [ordinary]
+        player.bindEngineCallbacks()
+        for item in items {
+            player.currentID = item.id
+            // The title must be right even before the new stream's snapshot,
+            // while the engine may still report the previous file's index.
+            #expect(player.displayTitle == item.title)
+            for title in [nil, "\(item.torrentFile!.index)", "Embedded video title"] as [String?] {
+                player.engine.onSnapshot?(.init(position: 0, duration: 60, paused: false, muted: false, volume: 80, speed: 1, eofReached: false, title: title))
+                #expect(player.displayTitle == item.title)
+            }
+        }
+        player.currentID = ordinary.id
+        player.engineTitle = "Embedded movie title"
+        #expect(player.displayTitle == "Embedded movie title")
+        player.engineTitle = nil
+        #expect(player.displayTitle == ordinary.title)
+        player.currentID = nil
+        #expect(player.displayTitle == "macmpv")
+    }
+
     @Test func completionIsConsumedOnceAndRearmedAfterSeek() {
         var completion = PlaybackCompletion()
         var results: [Bool] = []
