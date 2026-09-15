@@ -21,6 +21,10 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 SIGN_IDENTITY=${MACMPV_SIGN_IDENTITY:--}
 
+echo "==> Building mpv with the CoreAudio hotplug fix"
+zsh "$SCRIPT_DIR/build-libmpv.sh"
+PATCHED_LIBMPV="$PROJECT_DIR/.build/patched-mpv/build/libmpv.2.dylib"
+
 echo "==> Building release app"
 # Start from a clean bundle so stale helpers and dylibs never accumulate.
 rm -rf "$APP_DIR"
@@ -60,6 +64,11 @@ walk_deps() {
     closure[$dep]=1
     name=${dep:t}
     real=$(realpath "$resolved")
+    # Keep the app's libmpv ABI, but bundle the stable release with the upstream
+    # CoreAudio initialization fix instead of the vulnerable Homebrew binary.
+    if [[ "$name" == "libmpv.2.dylib" ]]; then
+      real="$PATCHED_LIBMPV"
+    fi
     if [[ -n "${by_name[$name]:-}" && "${by_name[$name]}" != "$real" ]]; then
       echo "error: two different libraries share the name $name" >&2
       exit 1

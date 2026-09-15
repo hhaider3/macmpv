@@ -126,6 +126,13 @@ final class MPVEngine {
             ("slang", "auto")
         ]
 
+        if #available(macOS 27, *) {
+            // CoreAudio on macOS 27 can reject planar float output. Keep native
+            // output working with interleaved float instead of falling back to
+            // AVFoundation after an AudioUnit initialization failure (mpv#18274).
+            options.append(("audio-format", "float"))
+        }
+
         let environment = ProcessInfo.processInfo.environment
         if let ipcPath = environment["MACMPV_MPV_IPC"], !ipcPath.isEmpty {
             options.append(("input-ipc-server", ipcPath))

@@ -253,3 +253,18 @@ publishes `site/`. Its native download picker and FAQ remain usable without
 JavaScript; the layout adapts to small screens and respects reduced motion.
 
 Run `make test-torrents` with the bundled torrent app present to test real downloads against a local web seed, priority switching, and offline reuse after restart. These tests do not contact public peers. Set `MACMPV_WEBTORRENT_MODULE` to a WebTorrent `index.js` and `TORRENT_NODE` to a compatible Node executable to use external dependencies.
+
+Packaged apps build mpv 0.41.0 with the upstream CoreAudio initialization fix for
+[mpv#18274](https://github.com/mpv-player/mpv/issues/18274). Without this fix,
+connecting or disconnecting Bluetooth audio devices after a failed audio output
+initialization can crash the app. Packaging requires `meson` and `ninja`
+(`brew install meson ninja`) in addition to the existing mpv dependencies.
+See [the backport notes](Scripts/patches/README.md). macOS 27 also uses interleaved
+float audio to avoid CoreAudio rejecting planar output. The minimum macOS version
+remains 26.
+
+Run `make test-coreaudio` to build the patched library and inject a silent audio
+initialization failure, checking that device-change callbacks are cleaned up.
+`zsh Scripts/test-coreaudio.sh /path/to/libmpv.2.dylib` tests a specific library.
+This regression does not connect, disconnect, or change the default audio device.
+Development runs using Homebrew's libmpv directly do not include the backport.
