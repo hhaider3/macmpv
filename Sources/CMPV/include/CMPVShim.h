@@ -134,6 +134,20 @@ static inline int cinewave_mpv_event_file_loaded(void) {
     return (int)MPV_EVENT_FILE_LOADED;
 }
 
+static inline int cinewave_mpv_add_preloaded_hook(mpv_handle *handle) {
+    return mpv_hook_add(handle, 0, "on_preloaded", 0);
+}
+
+static inline int cinewave_mpv_event_hook(void) {
+    return (int)MPV_EVENT_HOOK;
+}
+
+static inline void cinewave_mpv_continue_hook(mpv_handle *handle, const mpv_event *event) {
+    if (!event || event->event_id != MPV_EVENT_HOOK || !event->data) return;
+    const mpv_event_hook *hook = event->data;
+    mpv_hook_continue(handle, hook->id);
+}
+
 static inline int cinewave_mpv_event_end_file(void) {
     return (int)MPV_EVENT_END_FILE;
 }

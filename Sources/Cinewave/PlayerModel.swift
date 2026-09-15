@@ -64,6 +64,7 @@ final class PlayerModel {
     var subtitleTracks: [MPVEngine.MediaTrack] = []
     var introEndMarker: Double?
     var outroStartMarker: Double?
+    let seekPreview = SeekPreviewModel()
 
     struct SubtitleSettings: Codable, Equatable {
         var scale: Double = 1
@@ -188,6 +189,7 @@ final class PlayerModel {
 
     func detachVideoView(_ view: MPVGLView) {
         guard videoView === view else { return }
+        seekPreview.setSource(nil)
         rememberCurrentProgress(saveImmediately: true)
         magnetStream.stop()
         view.onViewGeometryChanged = nil
@@ -222,6 +224,7 @@ final class PlayerModel {
                 self.pendingResumePosition = nil
             case .endFile(let reachedEOF, let error):
                 if let error {
+                    self.seekPreview.setSource(nil)
                     self.isLoading = false
                     self.isPlaying = false
                     self.magnetStream.stop()
@@ -233,6 +236,7 @@ final class PlayerModel {
                 }
                 // Stop/replacement events are not playback completion.
             case .shutdown:
+                self.seekPreview.setSource(nil)
                 self.magnetStream.stop()
                 self.isPlaying = false
                 self.isLoading = false
@@ -310,6 +314,7 @@ final class PlayerModel {
 
     func play(_ item: MediaItem) {
         guard queue.contains(where: { $0.id == item.id }) else { return }
+        seekPreview.setSource(nil)
         rememberCurrentProgress(saveImmediately: true)
         cancelPendingPreviewSeek()
         completion.beginLoad()
@@ -560,6 +565,7 @@ final class PlayerModel {
     }
 
     func clearCurrentPlayback() {
+        seekPreview.setSource(nil)
         cancelPendingPreviewSeek()
         completion.beginLoad()
         magnetStream.stop()
@@ -674,6 +680,7 @@ final class PlayerModel {
     }
 
     func prepareForTermination() {
+        seekPreview.setSource(nil)
         rememberCurrentProgress(saveImmediately: true)
         persistStores()
         persistQueueState()
@@ -891,6 +898,7 @@ final class PlayerModel {
 
     private func loadResolvedSource(_ source: URL) {
         if engine.load(source) {
+            seekPreview.setSource(source)
             if engine.setPaused(false) {
                 isPlaying = true
             } else {

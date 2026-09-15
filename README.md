@@ -14,6 +14,7 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 - `.magnet`, `.torrent`, and magnet links through WebTorrent CLI, including multi-file torrents
 - Drag-and-drop, reorderable queue with next/previous and repeat modes
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
+- Thumbnail and timestamp previews when hovering over the seek bar
 - Per-file playback resume and saved intro/outro markers
 - External subtitle loading and selectable audio/subtitle track menus
 - Configurable subtitle appearance: size, outline, text color, background, bold, and sync delay
@@ -236,6 +237,13 @@ Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-s
 
 Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
+Seek-bar hover previews use a separate silent libmpv decoder, leaving playback
+position and audio untouched. Requests wait 120 ms, reuse up to 48 thumbnail frames
+per source, and cancel when the cursor leaves or media changes. The decoder uses
+the resolved playback URL for torrents, with read-ahead disabled and a bounded
+wait; an unavailable frame or non-seekable source shows a timestamp and placeholder. Temporary images
+are removed after extraction. No extra executable is required.
+
 ## Credits
 
 - [mpv](https://mpv.io/) — media playback engine (`libmpv`)
@@ -247,6 +255,10 @@ Run `make test` for Swift regression tests and static website validation. The Sw
 suite covers EOF and repeat modes, stop/error handling, queue persistence, stale
 torrent callbacks, large stderr output, and concurrent metadata timeouts. Process
 tests use local fake helpers and do not contact torrent peers or remote media.
+Seek-preview tests decode a generated red/green/blue video fixture and check
+timestamps, cache reuse, hover cancellation, and stale results after a file switch.
+They also use a loopback HTTP fixture to check byte-range seeking, non-seekable
+sources, stalled reads, and timeouts without contacting external servers.
 
 The website preserves its static Cloudflare Pages deployment: pushing `main`
 publishes `site/`. Its native download picker and FAQ remain usable without

@@ -4,6 +4,8 @@ struct PlayerControls: View {
     @Bindable var player: PlayerModel
     @State private var isScrubbing = false
     @State private var scrubPosition: Double = 0
+    @State private var seekBarFrame: CGRect = .zero
+    @State private var seekHoverX: CGFloat?
 
     private let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
@@ -38,6 +40,22 @@ struct PlayerControls: View {
                 )
                 .tint(.white)
                 .disabled(!player.hasMedia || player.duration <= 0)
+                .accessibilityLabel("Playback position")
+                .onGeometryChange(for: CGRect.self) { geometry in
+                    geometry.frame(in: .named("playerControls"))
+                } action: { frame in
+                    seekBarFrame = frame
+                }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let point):
+                        guard player.hasMedia, player.duration > 0, !player.isLoading else { return }
+                        seekHoverX = point.x
+                        player.seekPreview.show(at: hoverTime, duration: player.duration)
+                    case .ended:
+                        dismissSeekPreview()
+                    }
+                }
 
                 Text(player.duration.playbackTime)
                     .monospacedDigit()
@@ -172,6 +190,33 @@ struct PlayerControls: View {
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .glassEffectTransition(.materialize)
+        // Keep the preview outside the glass shape and the measured control height.
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometry in
+                if seekHoverX != nil, player.seekPreview.source != nil, !player.isLoading {
+                    SeekPreviewPopover(preview: player.seekPreview, seconds: hoverTime)
+                        .offset(
+                            x: min(max(seekBarFrame.minX + (seekHoverX ?? 0) - 96, 0), max(geometry.size.width - 192, 0)),
+                            y: seekBarFrame.minY - 148
+                        )
+                }
+            }
+            .allowsHitTesting(false)
+        }
+        .coordinateSpace(name: "playerControls")
+        .onChange(of: player.currentID) { _, _ in dismissSeekPreview() }
+        .onDisappear { dismissSeekPreview() }
+    }
+
+    private var hoverTime: Double {
+        // A native slider reserves half a knob at each end of its track.
+        let fraction = min(max(((seekHoverX ?? 0) - 8) / max(seekBarFrame.width - 16, 1), 0), 1)
+        return fraction * max(player.duration, 0)
+    }
+
+    private func dismissSeekPreview() {
+        seekHoverX = nil
+        player.seekPreview.hide()
     }
 
     private var currentTime: Double {

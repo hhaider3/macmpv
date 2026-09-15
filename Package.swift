@@ -29,6 +29,10 @@ let package = Package(
                 .linkedFramework("QuartzCore")
             ]
         ),
-        .testTarget(name: "macmpvTests", dependencies: ["macmpv"])
+        .testTarget(
+            name: "macmpvTests",
+            dependencies: ["macmpv"],
+            resources: [.copy("Fixtures")]
+        )
     ]
 )
