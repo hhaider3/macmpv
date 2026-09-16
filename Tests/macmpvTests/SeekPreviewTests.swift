@@ -170,8 +170,46 @@ struct SeekPreviewTests {
         #expect(model.imageSecond == 4)
     }
 
-    @MainActor private func waitUntil(_ condition: () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
+    @Test @MainActor func delayAppliesOnlyWhenEnteringTheSeekBar() async throws {
+        let gate = PreviewGate()
+        let model = SeekPreviewModel(hoverDelay: .seconds(1), render: { await gate.render($0, $1) })
+        defer { model.hide() }
+        let png = try #require(await SeekPreviewRenderer.render(source: fixture, seconds: 1))
+        model.setSource(fixture)
+        let entered = ContinuousClock.now
+        model.show(at: 1, duration: 6)
+        try await Task.sleep(for: .milliseconds(50))
+        model.show(at: 2, duration: 6)
+        #expect(await gate.calls.isEmpty)
+        try await waitUntil { await gate.calls.count == 1 }
+        #expect(ContinuousClock.now - entered >= .milliseconds(900))
+        #expect(await gate.calls.last?.1 == 2)
+        await gate.release(png)
+        try await waitUntil { !model.isLoading }
+
+        // Even after the previous request finishes, movement must not wait again.
+        model.show(at: 3, duration: 6)
+        try await waitUntil(timeout: .milliseconds(400)) { await gate.calls.count == 2 }
+        await gate.release(png)
+        try await waitUntil { !model.isLoading }
+
+        // A cached preview on re-entry activates immediate updates as well.
+        model.hide()
+        model.show(at: 2, duration: 6)
+        #expect(model.image != nil)
+        model.show(at: 4, duration: 6)
+        try await waitUntil(timeout: .milliseconds(400)) { await gate.calls.count == 3 }
+        await gate.release(png)
+        try await waitUntil { !model.isLoading }
+
+        model.hide()
+        model.show(at: 0, duration: 6)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await gate.calls.count == 3)
+    }
+
+    @MainActor private func waitUntil(timeout: Duration = .seconds(3), _ condition: () async -> Bool) async throws {
+        let deadline = ContinuousClock.now + timeout
         while !(await condition()), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }

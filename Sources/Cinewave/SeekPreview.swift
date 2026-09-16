@@ -171,6 +171,7 @@ final class SeekPreviewModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var revision = UUID()
     @ObservationIgnored private var requestedSecond: Double?
+    @ObservationIgnored private var isHoverActivated = false
     @ObservationIgnored private var cache: [Double: NSImage] = [:]
     @ObservationIgnored private var cacheOrder: [Double] = []
     @ObservationIgnored private let render: @Sendable (URL, Double) async -> Data?
@@ -205,6 +206,12 @@ final class SeekPreviewModel {
         guard requestedSecond != second else { return }
         requestedSecond = second
         if let cached = cache[second] {
+            if !isHoverActivated {
+                // An immediately available preview also completes the entry delay.
+                task?.cancel()
+                task = nil
+                isHoverActivated = true
+            }
             image = cached
             imageSecond = second
             isLoading = false
@@ -217,10 +224,13 @@ final class SeekPreviewModel {
         guard task == nil else { return }
         let request = revision
         let render = render
-        let delay = hoverDelay
+        let delay = isHoverActivated ? .zero : hoverDelay
         task = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
-            guard !Task.isCancelled else { return }
+            if delay > .zero {
+                do { try await Task.sleep(for: delay) } catch { return }
+            }
+            guard !Task.isCancelled, self?.revision == request else { return }
+            self?.isHoverActivated = true
             while !Task.isCancelled, let second = self?.requestedSecond {
                 let data = await render(source, second)
                 guard !Task.isCancelled, let self, self.revision == request else { return }
@@ -252,6 +262,7 @@ final class SeekPreviewModel {
         task?.cancel()
         task = nil
         requestedSecond = nil
+        isHoverActivated = false
         image = nil
         imageSecond = nil
         isLoading = false

@@ -238,8 +238,10 @@ Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-s
 Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
 Seek-bar hover previews use a separate silent libmpv decoder, leaving playback
-position and audio untouched. After an 80 ms hover delay, the decoder stays open
-for repeated seeks and caches up to 120 thumbnails per source. Cursor movement
+position and audio untouched. An 80 ms delay applies only when entering the seek
+bar; subsequent movement requests frames immediately, without another delay.
+Cached previews activate immediately, including on re-entry. The decoder stays
+open for repeated seeks and caches up to 120 thumbnails per source. Cursor movement
 coalesces pending requests; the last image and its timestamp remain visible until
 the next frame is ready. Before the first frame arrives, or when a preview is
 unavailable, the popover shows only the timestamp. Leaving the bar cancels pending
