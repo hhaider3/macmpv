@@ -194,10 +194,11 @@ struct PlayerControls: View {
         .overlay(alignment: .topLeading) {
             GeometryReader { geometry in
                 if seekHoverX != nil, player.seekPreview.source != nil, !player.isLoading {
-                    SeekPreviewPopover(preview: player.seekPreview, seconds: hoverTime)
+                    let popover = SeekPreviewPopover(preview: player.seekPreview, seconds: hoverTime)
+                    popover
                         .offset(
-                            x: min(max(seekBarFrame.minX + (seekHoverX ?? 0) - 96, 0), max(geometry.size.width - 192, 0)),
-                            y: seekBarFrame.minY - 148
+                            x: min(max(seekBarFrame.minX + (seekHoverX ?? 0) - popover.width / 2, 0), max(geometry.size.width - popover.width, 0)),
+                            y: seekBarFrame.minY - popover.height - 12
                         )
                 }
             }

@@ -117,6 +117,59 @@ struct SeekPreviewTests {
         #expect(model.image == nil)
     }
 
+    @Test func repeatedPreviewsReuseTheOpenVideoAndSeekBackwards() async throws {
+        let server = try PreviewHTTPServer(video: Data(contentsOf: fixture))
+        defer { server.stop() }
+        let base = try await server.start()
+        let source = base.appendingPathComponent("torrent/7")
+        let renderer = SeekPreviewRenderer()
+        defer { renderer.reset() }
+        let first = try #require(await renderer.frame(source: source, seconds: 5.8))
+        #expect(NSBitmapImageRep(data: first) != nil)
+        let initialRequests = await server.requestCount()
+        for (seconds, channel) in [(0.5, 0), (2.5, 1), (5.8, 2), (0.5, 0)] {
+            let data = try #require(await renderer.frame(source: source, seconds: seconds))
+            let bitmap = try #require(NSBitmapImageRep(data: data))
+            let pixel = try #require(bitmap.colorAt(x: 160, y: 90)?.usingColorSpace(.deviceRGB))
+            #expect([pixel.redComponent, pixel.greenComponent, pixel.blueComponent][channel] > 0.8)
+        }
+        // This tiny movie fits in the open decoder's input buffer. Reopening it
+        // for every thumbnail would require at least one new request each time.
+        #expect(await server.requestCount() == initialRequests)
+        renderer.reset()
+        #expect(await renderer.frame(source: source, seconds: 2.5) != nil)
+        #expect(await server.requestCount() > initialRequests)
+    }
+
+    @Test @MainActor func cursorMovementKeepsTheImageAndCoalescesPendingPositions() async throws {
+        let gate = PreviewGate()
+        let model = SeekPreviewModel(hoverDelay: .zero, render: { await gate.render($0, $1) })
+        let png = try #require(await SeekPreviewRenderer.render(source: fixture, seconds: 1))
+        model.setSource(fixture)
+        model.show(at: 1, duration: 6)
+        try await waitUntil { await gate.calls.count == 1 }
+        await gate.release(png)
+        try await waitUntil { !model.isLoading }
+        let image = try #require(model.image)
+
+        model.show(at: 2, duration: 6)
+        try await waitUntil { await gate.calls.count == 2 }
+        model.show(at: 3, duration: 6)
+        model.show(at: 4, duration: 6)
+        #expect(model.image === image)
+        #expect(model.imageSecond == 1)
+        #expect(model.isLoading)
+        #expect(await gate.calls.count == 2)
+        await gate.release(png)
+        try await waitUntil { await gate.calls.count == 3 }
+        #expect(await gate.calls.last?.1 == 4)
+        #expect(model.image === image)
+        #expect(model.imageSecond == 1)
+        await gate.release(png)
+        try await waitUntil { !model.isLoading }
+        #expect(model.imageSecond == 4)
+    }
+
     @MainActor private func waitUntil(_ condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !(await condition()), ContinuousClock.now < deadline {

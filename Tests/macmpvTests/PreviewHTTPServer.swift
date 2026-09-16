@@ -8,6 +8,7 @@ final class PreviewHTTPServer: @unchecked Sendable {
     private let video: Data
     // Accessed only on queue, including the connection and receive callbacks.
     private var connections: [NWConnection] = []
+    private var receivedRequests = 0
 
     init(video: Data) throws {
         self.video = video
@@ -47,6 +48,7 @@ final class PreviewHTTPServer: @unchecked Sendable {
                 return
             }
             guard !text.hasPrefix("GET /stall ") else { return }
+            receivedRequests += 1
             let supportsSeeking = !text.hasPrefix("GET /unseekable ")
             let range = text.components(separatedBy: "\r\n")
                 .first { $0.lowercased().hasPrefix("range: bytes=") }
@@ -72,6 +74,12 @@ final class PreviewHTTPServer: @unchecked Sendable {
         queue.async { [self] in
             connections.forEach { $0.cancel() }
             connections.removeAll()
+        }
+    }
+
+    func requestCount() async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in continuation.resume(returning: receivedRequests) }
         }
     }
 }

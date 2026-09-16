@@ -134,6 +134,15 @@ static inline int cinewave_mpv_event_file_loaded(void) {
     return (int)MPV_EVENT_FILE_LOADED;
 }
 
+static inline int cinewave_mpv_event_playback_restart(void) {
+    return (int)MPV_EVENT_PLAYBACK_RESTART;
+}
+
+static inline int cinewave_mpv_preview_screenshot(mpv_handle *handle, const char *path) {
+    const char *args[] = {"sync", "screenshot-to-file", path, "video", NULL};
+    return mpv_command(handle, args);
+}
+
 static inline int cinewave_mpv_add_preloaded_hook(mpv_handle *handle) {
     return mpv_hook_add(handle, 0, "on_preloaded", 0);
 }

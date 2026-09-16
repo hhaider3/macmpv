@@ -4,33 +4,29 @@ struct SeekPreviewPopover: View {
     let preview: SeekPreviewModel
     let seconds: Double
 
+    var width: CGFloat { preview.image == nil ? 76 : 192 }
+    var height: CGFloat { preview.image == nil ? 28 : 136 }
+
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Color.black
-                if let image = preview.image {
+            if let image = preview.image {
+                ZStack {
+                    Color.black
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
-                } else if preview.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                } else {
-                    Image(systemName: "film")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.white.opacity(0.45))
                 }
+                .frame(height: 108)
             }
-            .frame(height: 108)
 
-            Text(seconds.playbackTime)
+            // A retained frame keeps its own time until the next one is ready.
+            Text((preview.imageSecond ?? seconds).playbackTime)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
+                .frame(height: 28)
         }
-        .frame(width: 192)
+        .frame(width: width)
         .background(Color(white: 0.09))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay {

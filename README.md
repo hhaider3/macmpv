@@ -238,11 +238,16 @@ Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-s
 Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
 Seek-bar hover previews use a separate silent libmpv decoder, leaving playback
-position and audio untouched. Requests wait 120 ms, reuse up to 48 thumbnail frames
-per source, and cancel when the cursor leaves or media changes. The decoder uses
-the resolved playback URL for torrents, with read-ahead disabled and a bounded
-wait; an unavailable frame or non-seekable source shows a timestamp and placeholder. Temporary images
-are removed after extraction. No extra executable is required.
+position and audio untouched. After an 80 ms hover delay, the decoder stays open
+for repeated seeks and caches up to 120 thumbnails per source. Cursor movement
+coalesces pending requests; the last image and its timestamp remain visible until
+the next frame is ready. Before the first frame arrives, or when a preview is
+unavailable, the popover shows only the timestamp. Leaving the bar cancels pending
+work, and the decoder closes after five seconds idle or when media changes.
+Torrent previews read through the existing local stream, which reuses verified
+downloaded pieces. Read-ahead is disabled and waits are bounded; parts that have
+not downloaded yet may still take time. Temporary images are removed after
+extraction. No extra executable is required.
 
 ## Credits
 
@@ -257,6 +262,7 @@ torrent callbacks, large stderr output, and concurrent metadata timeouts. Proces
 tests use local fake helpers and do not contact torrent peers or remote media.
 Seek-preview tests decode a generated red/green/blue video fixture and check
 timestamps, cache reuse, hover cancellation, and stale results after a file switch.
+They also check decoder reuse, backward seeking, and coalescing cursor movement.
 They also use a loopback HTTP fixture to check byte-range seeking, non-seekable
 sources, stalled reads, and timeouts without contacting external servers.
 
