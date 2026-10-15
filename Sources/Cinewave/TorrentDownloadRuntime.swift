@@ -74,6 +74,10 @@ enum TorrentDownloadRuntime {
     }
     process.on('SIGTERM', () => finish())
     process.on('SIGINT', () => finish())
+    // A crashed or force-quit app never sends SIGTERM. Orphans are reparented,
+    // so a changed ppid means the app is gone; stop instead of seeding forever.
+    const parentPID = process.ppid
+    setInterval(() => { if (process.ppid !== parentPID) finish() }, 2000).unref()
 
     async function atomicWrite(destination, contents, suffix = 'tmp') {
       const temporary = `${destination}.${suffix}`

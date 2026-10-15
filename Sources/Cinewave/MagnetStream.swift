@@ -471,6 +471,9 @@ final class MagnetStream {
           }
 
           client.on('error', fail)
+          // Exit if the app dies before metadata arrives (orphans are reparented).
+          const parentPID = process.ppid
+          setInterval(() => { if (process.ppid !== parentPID) process.exit(1) }, 2000).unref()
           const torrent = client.add(source, { path: downloadPath, deselect: true })
           torrent.on('warning', warning => console.error(warning?.message || String(warning)))
           torrent.once('ready', async () => {
