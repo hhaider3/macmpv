@@ -108,7 +108,7 @@ final class MPVEngine {
             // Decode straight into GPU textures. Copy-back (auto-copy-safe) cost
             // a 4K frame upload on the main thread every frame and about twice
             // the CPU; random-seek testing showed no texture problems without it.
-            ("hwdec", "auto-safe"),
+            ("hwdec", Self.hardwareDecoding),
             // The view's display link already paces frames. With mpv's default
             // render-ahead offset, mpv_render_context_render blocked the main
             // thread until each frame's display time (most of its time in 4K).
@@ -558,8 +558,30 @@ final class MPVEngine {
         return true
     }
 
-    func saveScreenshot(to url: URL) -> Bool {
+    /// VideoToolbox frames stay on the GPU, and libmpv's screenshot path cannot
+    /// read them ("videotoolbox not supported by libswscale"). When a capture
+    /// fails for that reason, decode through copy-back just long enough for the
+    /// current frame to be re-decoded and captured, then switch back.
+    func saveScreenshot(to url: URL) async -> Bool {
         guard let handle else { return false }
+        if captureScreenshot(handle, to: url) { return true }
+        let decoder = stringProperty("hwdec-current") ?? ""
+        guard !decoder.isEmpty, decoder != "no", !decoder.hasSuffix("-copy"),
+              cinewave_mpv_set_string(handle, "hwdec", Self.copyBackHardwareDecoding) >= 0 else {
+            return false
+        }
+        var saved = false
+        for _ in 0..<40 where !saved {
+            try? await Task.sleep(for: .milliseconds(50))
+            // The engine may shut down while waiting; never touch a stale handle.
+            guard self.handle == handle else { return false }
+            saved = captureScreenshot(handle, to: url)
+        }
+        _ = cinewave_mpv_set_string(handle, "hwdec", Self.hardwareDecoding)
+        return saved
+    }
+
+    private func captureScreenshot(_ handle: OpaquePointer, to url: URL) -> Bool {
         let result = cinewave_mpv_command_3(handle, "screenshot-to-file", url.path, "video")
         if result < 0 {
             lastError = Self.errorMessage(result, context: "Saving screenshot")
@@ -595,6 +617,10 @@ final class MPVEngine {
         defer { cinewave_mpv_free(value) }
         return String(cString: value)
     }
+
+    /// Decodes straight into GPU textures; see the option list in start().
+    private static let hardwareDecoding = "auto-safe"
+    private static let copyBackHardwareDecoding = "auto-copy-safe"
 
     private static func errorMessage(_ code: Int32, context: String) -> String {
         let detail = cinewave_mpv_error_string(code).map(String.init(cString:)) ?? "Unknown error"

@@ -533,9 +533,12 @@ final class PlayerModel {
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = screenshotFilename()
         panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else { return }
-            if !self.engine.saveScreenshot(to: url) {
-                self.errorMessage = self.engine.lastError ?? "The screenshot could not be saved."
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if await !self.engine.saveScreenshot(to: url) {
+                    self.errorMessage = self.engine.lastError ?? "The screenshot could not be saved."
+                }
             }
         }
     }

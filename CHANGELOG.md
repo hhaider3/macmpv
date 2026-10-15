@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.1 — 2026-10-15
+
+- Fixed **Save Screenshot** (⇧⌘S), which failed in 1.6 and 1.7 because VideoToolbox frames stay on the GPU where mpv's screenshot code cannot read them. macmpv now switches to copy-back decoding for a moment to capture the frame, then goes back to full hardware decoding.
+
+Both downloads require macOS 26 or newer on Apple Silicon. The Standard build bundles playback dependencies; the + Torrents build also includes Node and WebTorrent. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
+
 ## 1.7 — 2026-10-15
 
 - Right-click a queue item or collection to move its files to the Trash, including downloaded torrent episodes; removing a whole torrent also trashes its cached metadata and local source. Remote streams and missing files simply leave the queue, and anything that cannot be trashed stays queued with an error. **Clear Queue** still never touches files.
