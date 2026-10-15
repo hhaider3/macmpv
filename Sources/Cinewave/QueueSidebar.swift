@@ -56,9 +56,10 @@ struct QueueSidebar: View {
             maxWidth: 300,
             maxHeight: .infinity
         )
+        // Not .interactive(): an open menu holds the press, which kept the
+        // whole sidebar swollen until the menu closed.
         .glassEffect(
-            .regular
-                .interactive(),
+            .regular,
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .glassEffectTransition(.materialize)

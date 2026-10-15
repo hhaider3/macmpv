@@ -148,17 +148,16 @@ struct PlayerControls: View {
                     .frame(width: 72)
 
                     Menu {
-                        ForEach(speeds, id: \.self) { speed in
-                            Button {
-                                player.setSpeed(speed)
-                            } label: {
-                                if player.speed == speed {
-                                    Label(speedLabel(speed), systemImage: "checkmark")
-                                } else {
-                                    Text(speedLabel(speed))
-                                }
+                        Picker("Speed", selection: Binding(
+                            get: { player.speed },
+                            set: { player.setSpeed($0) }
+                        )) {
+                            ForEach(speeds, id: \.self) { speed in
+                                Text(speedLabel(speed)).tag(speed)
                             }
                         }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
                     } label: {
                         Text(speedLabel(player.speed))
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -184,9 +183,10 @@ struct PlayerControls: View {
         .padding(.horizontal, 18)
         .padding(.top, 13)
         .padding(.bottom, 16)
+        // Not .interactive(): interactive glass swells while a press is held, and
+        // an open menu holds the press, so the whole bar grew until it closed.
         .glassEffect(
-            .regular
-                .interactive(),
+            .regular,
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .glassEffectTransition(.materialize)
@@ -226,30 +226,19 @@ struct PlayerControls: View {
 
     private var subtitleMenu: some View {
         Menu {
-            Button {
-                player.selectSubtitleTrack(nil)
-            } label: {
-                if player.subtitleTracks.contains(where: \.isSelected) {
-                    Text("Subtitles Off")
-                } else {
-                    Label("Subtitles Off", systemImage: "checkmark")
-                }
-            }
-
-            if !player.subtitleTracks.isEmpty {
-                Divider()
-                ForEach(player.subtitleTracks) { track in
-                    Button {
-                        player.selectSubtitleTrack(track)
-                    } label: {
-                        if track.isSelected {
-                            Label(track.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(track.displayName)
-                        }
+            // An inline Picker gives native menu checkmarks; a Label's image
+            // is not shown as a selection state in macOS menus.
+            Picker("Subtitles", selection: subtitleSelection) {
+                Text("Subtitles Off").tag(String?.none)
+                if !player.subtitleTracks.isEmpty {
+                    Divider()
+                    ForEach(player.subtitleTracks) { track in
+                        Text(track.displayName).tag(String?.some(track.id))
                     }
                 }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
 
             Divider()
             Button("Open Subtitle File…", systemImage: "folder") {
@@ -266,7 +255,23 @@ struct PlayerControls: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .disabled(!player.hasMedia)
-        .help("Choose subtitles")
+        .help(subtitleHelp)
+    }
+
+    private var subtitleSelection: Binding<String?> {
+        Binding(
+            get: { player.subtitleTracks.first(where: \.isSelected)?.id },
+            set: { id in
+                player.selectSubtitleTrack(player.subtitleTracks.first { $0.id == id })
+            }
+        )
+    }
+
+    private var subtitleHelp: String {
+        guard let track = player.subtitleTracks.first(where: \.isSelected) else {
+            return "Choose subtitles (Off)"
+        }
+        return "Choose subtitles (\(track.displayName))"
     }
 
     private var subtitleSettingsButton: some View {
@@ -284,17 +289,13 @@ struct PlayerControls: View {
             if player.audioTracks.isEmpty {
                 Text("No audio tracks")
             } else {
-                ForEach(player.audioTracks) { track in
-                    Button {
-                        player.selectAudioTrack(track)
-                    } label: {
-                        if track.isSelected {
-                            Label(track.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(track.displayName)
-                        }
+                Picker("Audio", selection: audioSelection) {
+                    ForEach(player.audioTracks) { track in
+                        Text(track.displayName).tag(String?.some(track.id))
                     }
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
         } label: {
             GlassMenuIcon(symbol: "waveform")
@@ -302,7 +303,24 @@ struct PlayerControls: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .disabled(!player.hasMedia)
-        .help("Choose audio track")
+        .help(audioHelp)
+    }
+
+    private var audioSelection: Binding<String?> {
+        Binding(
+            get: { player.audioTracks.first(where: \.isSelected)?.id },
+            set: { id in
+                guard let track = player.audioTracks.first(where: { $0.id == id }) else { return }
+                player.selectAudioTrack(track)
+            }
+        )
+    }
+
+    private var audioHelp: String {
+        guard let track = player.audioTracks.first(where: \.isSelected) else {
+            return "Choose audio track"
+        }
+        return "Choose audio track (\(track.displayName))"
     }
 
     private var markerMenu: some View {
