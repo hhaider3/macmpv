@@ -33,7 +33,7 @@
     <meta name="google-site-verification" content="gB5leSCPsE-wYUVAdXqqaZtpPRPtcAPRY8eYEsmjqVg" />
     <link rel="icon" type="image/png" sizes="64x64" href="assets/macmpv-icon-64.png">
     <link rel="apple-touch-icon" href="assets/macmpv-icon-180.png">
-    <link rel="stylesheet" href="styles.css?v=12">
+    <link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
     <a class="skip-link" href="#top">Skip to content</a>
@@ -100,8 +100,8 @@
                     <picture>
                         <source srcset="assets/macmpv-player.webp" type="image/webp">
                         <img src="assets/macmpv-player.jpg"
-                             alt="macmpv playing a 4K video with playback controls visible"
-                             width="2016" height="1289"
+                             alt="macmpv playing a colorful video with the playback controls visible"
+                             width="1372" height="876"
                              decoding="async" fetchpriority="high">
                     </picture>
                 </div>
@@ -128,8 +128,8 @@
                     <picture>
                         <source srcset="assets/macmpv-subtitle-controls.webp" type="image/webp">
                         <img src="assets/macmpv-subtitle-controls.jpg"
-                             alt="macmpv subtitle settings popover with size, outline, background, bold, text color, and delay controls"
-                             width="2940" height="1912"
+                             alt="macmpv subtitle settings popover with size, outline, background, bold, text color, and delay controls, next to a bold subtitle"
+                             width="1372" height="876"
                              loading="lazy" decoding="async">
                     </picture>
                 </div>
@@ -194,6 +194,32 @@
                 </div>
                 <figcaption>Magnet and torrent playback, live.</figcaption>
             </figure>
+        </section>
+
+        <section class="section showcase showcase-reverse" id="seek-previews">
+            <figure class="showcase-shot reveal">
+                <div class="showcase-frame">
+                    <video class="showcase-video" muted loop playsinline preload="none"
+                           poster="assets/macmpv-seek-preview.webp"
+                           width="1372" height="876"
+                           aria-label="Hovering along the macmpv seek bar shows a thumbnail and timestamp for each moment while the video stays paused">
+                        <source src="assets/macmpv-seek-preview.mp4" type="video/mp4">
+                    </video>
+                </div>
+                <figcaption>Thumbnails follow the cursor along the seek bar.</figcaption>
+            </figure>
+            <div class="showcase-copy reveal">
+                <p class="eyebrow">Seek previews</p>
+                <h2>See it before<br>you skip.</h2>
+                <p>
+                    Hover anywhere on the seek bar and a thumbnail of that moment
+                    appears instantly, without pausing or moving playback.
+                </p>
+                <p class="showcase-note">
+                    Previews keep up as you sweep across the timeline, then sharpen to
+                    the exact frame the moment you rest on a spot.
+                </p>
+            </div>
         </section>
 
 
@@ -372,6 +398,6 @@
         </p>
     </footer>
 
-    <script src="script.js?v=3" defer></script>
+    <script src="script.js?v=4" defer></script>
 </body>
 </html>
