@@ -14,9 +14,9 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 - `.magnet`, `.torrent`, and magnet links through WebTorrent CLI, including multi-file torrents
 - Drag-and-drop, reorderable queue with next/previous and repeat modes
 - Seeking, mute/volume, playback speed, audio tracks, and subtitles
-- Thumbnail and timestamp previews when hovering over the seek bar
+- Instant thumbnail and timestamp previews when hovering over the seek bar, sharpened to the exact frame when the cursor rests
 - Per-file playback resume and saved intro/outro markers
-- External subtitle loading and selectable audio/subtitle track menus
+- External subtitle loading and audio/subtitle track menus that mark the active track
 - Configurable subtitle appearance: size, outline, text color, background, bold, and sync delay
 - Subtitles that move clear of the controls bar based on the measured overlap, in windowed and full-screen playback
 - PNG screenshots through the player controls or keyboard
@@ -66,7 +66,7 @@ Anything [mpv](https://mpv.io/) / [FFmpeg](https://ffmpeg.org/) can play. Common
 
 `mp4`, `m4v`, `mov`, `mkv`, `mka`, `webm`, `avi`, `flv`, `ts`, `mts`, `m2ts`, `mpeg`, `mpg`, `vob`, `wmv`, `asf`, `divx`, `f4v`, `rm`, `rmvb`, `3gp`, `3g2`, `ogv`, `ogm`, `ogg`, `oga`, `opus`, `mp3`, `m4a`, `aac`, `ac3`, `dts`, `flac`, `alac`, `ape`, `aiff`, `caf`, `wav`, `wma` plus `m3u`/`m3u8` playlists.
 
-Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. After torrent metadata resolves, every supported video or audio file is added to the queue in natural filename order while retaining its original WebTorrent index for playback. The first file starts automatically, and selecting any row streams that file to the embedded player over localhost; non-media extras are hidden. Torrent media is saved under `~/Movies/macmpv/Torrents/<info-hash>/`. Completed files and partial downloads survive app shutdown and are verified and reused when you reopen the same torrent. The currently selected video gets all available download capacity; once it finishes, the remaining supported media files download in natural filename order. Selecting another video immediately changes download priority within the same connection. Downloads stop when the app closes or you leave the torrent. Use **Show Torrent Downloads** in the queue menu to find the files; remove unwanted downloads manually to reclaim disk space. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
+Network streams: `http`, `https`, `rtmp`, `rtsp`, and `magnet`. A `.magnet` file must contain a valid `magnet:` URI; binary `.torrent` files can be opened directly. After torrent metadata resolves, every supported video or audio file is added to the queue in natural filename order while retaining its original WebTorrent index for playback. The first file starts automatically, and selecting any row streams that file to the embedded player over localhost; non-media extras are hidden. Torrent media is saved under `~/Movies/macmpv/Torrents/<info-hash>/`. Completed files and partial downloads survive app shutdown and are verified and reused when you reopen the same torrent. The currently selected video gets all available download capacity; once it finishes, the remaining supported media files download in natural filename order. Selecting another video immediately changes download priority within the same connection. Downloads stop when the app closes or you leave the torrent; the helper also exits on its own if macmpv quits unexpectedly. Use **Show Torrent Downloads** in the queue menu to find the files; remove unwanted downloads manually to reclaim disk space. URL schemes and extension checks are defined in `Sources/Cinewave/MediaModels.swift`.
 
 ## Keyboard Shortcuts
 
@@ -233,15 +233,23 @@ possible in that configuration.
 
 macmpv wraps `libmpv` via `Sources/CMPV` (pkg-config `mpv`) and renders with `MPVEngine` / `MPVGLView` (`Sources/Cinewave/MPVEngine.swift`, `Sources/Cinewave/VideoSurface.swift`). Metadata is probed out-of-process with `ffprobe` (`Sources/Cinewave/MediaProbe.swift`).
 
-Playback uses mpv's copy-back hardware decoding mode. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`. Natural EOF is consumed once from mpv’s `eof-reached` property, including when the last frame stays visible. Queue operations and persistence live in `PlayerModel+Queue.swift` and `PlayerModel+Persistence.swift`; their stored data format is unchanged. Metadata probes run at most two child processes at once, with blocking pipe reads isolated from Swift concurrency workers. Torrent requests verify their identity after asynchronous reads so canceled work cannot stop a newer helper.
+Playback decodes with VideoToolbox straight into GPU textures (`hwdec=auto-safe`)
+and sets `video-timing-offset=0`, so mpv hands over each frame at its display time
+and rendering never waits on the main thread; the view's display link paces frames.
+Position updates from mpv are coalesced to four per second unless a seek or another
+property changes. Scrubbing coalesces fast-seek previews (throttled to ~180 ms, `absolute+keyframes`) while dragging the slider, then performs an exact seek on release — see `PlayerModel.previewSeekInterval` and `MPVEngine`. Natural EOF is consumed once from mpv’s `eof-reached` property, including when the last frame stays visible. Queue operations and persistence live in `PlayerModel+Queue.swift` and `PlayerModel+Persistence.swift`. Resume positions keep the 500 most recently watched files (older undated entries migrate automatically), and markers are written only when they change. Metadata probes run at most two child processes at once, with blocking pipe reads isolated from Swift concurrency workers. Torrent requests verify their identity after asynchronous reads so canceled work cannot stop a newer helper.
 
 Teardown drains the dedicated mpv event queue before destroying the handle, and subtitle clearance is recomputed from the letterboxed video rect and the measured height of the controls bar.
 
 Seek-bar hover previews use a separate silent libmpv decoder, leaving playback
-position and audio untouched. An 80 ms delay applies only when entering the seek
+position and audio untouched. While the cursor moves, each preview seeks to the
+keyframe at or before the hovered time, which decodes a single frame (about 15 ms
+for 1080p H.264 and 50 ms for 4K HEVC). Once the cursor rests for 300 ms, the exact
+frame is decoded and replaces it; any movement cancels that work so it never delays
+the next preview. An 80 ms delay applies only when entering the seek
 bar; subsequent movement requests frames immediately, without another delay.
 Cached previews activate immediately, including on re-entry. The decoder stays
-open for repeated seeks and caches up to 120 thumbnails per source. Cursor movement
+open for repeated seeks, including after a canceled request, and caches up to 120 thumbnails per source. Cursor movement
 coalesces pending requests; the last image and its timestamp remain visible until
 the next frame is ready. Before the first frame arrives, or when a preview is
 unavailable, the popover shows only the timestamp. Leaving the bar cancels pending
@@ -259,12 +267,15 @@ extraction. No extra executable is required.
 ## Tests
 
 Run `make test` for Swift regression tests and static website validation. The Swift
-suite covers EOF and repeat modes, stop/error handling, queue persistence, stale
+suite covers EOF and repeat modes, stop/error handling, queue persistence, resume
+position migration and pruning, stale
 torrent callbacks, large stderr output, and concurrent metadata timeouts. Process
 tests use local fake helpers and do not contact torrent peers or remote media.
 Seek-preview tests decode a generated red/green/blue video fixture and check
 timestamps, cache reuse, hover cancellation, and stale results after a file switch.
-They also check decoder reuse, backward seeking, and coalescing cursor movement.
+They also check decoder reuse, backward seeking, coalescing cursor movement, and
+keyframe versus exact previews on a single-keyframe fixture, including canceling an
+exact decode when the cursor moves.
 They also use a loopback HTTP fixture to check byte-range seeking, non-seekable
 sources, stalled reads, and timeouts without contacting external servers.
 
