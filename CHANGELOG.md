@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7 — 2026-10-15
+
+- Right-click a queue item or collection to move its files to the Trash, including downloaded torrent episodes; removing a whole torrent also trashes its cached metadata and local source. Remote streams and missing files simply leave the queue, and anything that cannot be trashed stays queued with an error. **Clear Queue** still never touches files.
+- Show in Finder is available on queue items and from the player title.
+- Torrent episodes you remove from the queue are no longer downloaded in the background.
+- Website: a version and release-notes link under the download button, a macOS 27 FAQ entry, a note about moving finished items to the Trash, and much lighter pages (the icon shrank from 1.3 MB to 6 KB, and screenshots are served as WebP at about a seventh of their former size).
+
+Both downloads require macOS 26 or newer on Apple Silicon. The Standard build bundles playback dependencies; the + Torrents build also includes Node and WebTorrent. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
+
 ## 1.6 — 2026-10-15
 
 - Seek-bar hover thumbnails: a separate silent decoder shows previews without interrupting playback. Previews appear in about 15 ms (1080p) to 50 ms (4K) while the cursor moves, then sharpen to the exact frame once it rests.

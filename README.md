@@ -190,7 +190,8 @@ project.
 
 Releases are automated: `make release` (or `make release VERSION=1.3` to bump
 Info.plist first — the bump is committed so the tag points at the version
-built) builds both dmgs, patches the site's download URLs, sizes, and SHA-256,
+built) builds both dmgs, patches the site's download URLs, sizes, SHA-256, and
+the version and release-notes link under the download button,
 and publishes both GitHub releases (`vX.Y` and `vX.Yt`) via the `gh` CLI — see
 `Scripts/release.sh`. It refuses a dirty working tree, pushes the exact source commit, and explicitly targets that commit for both tags
 and leaves the site changes for you to commit and push, which deploys them via

@@ -1,4 +1,4 @@
 User-agent: *
-Allow:
+Allow: /
 
 Sitemap: https://macmpv.pages.dev/sitemap.xml

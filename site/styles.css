@@ -359,6 +359,11 @@ main {
     box-shadow: var(--shadow);
 }
 
+.shot-frame picture,
+.showcase-frame picture {
+    display: block;
+}
+
 .shot-frame img {
     display: block;
     width: 100%;

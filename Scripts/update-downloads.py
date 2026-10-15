@@ -16,6 +16,9 @@ html, n_tor_url = re.subn(
 html, n_sha = re.subn(
     r'(SHA-256 \(standard\)</span>\s*<code>)[0-9a-f]{64}',
     r'\g<1>' + std_sha, html)
+html, n_notes = re.subn(
+    r'(<a data-release-notes href="[^"]*/releases/tag/v)[\d.]+(" rel="noopener">Version )[\d.]+',
+    rf'\g<1>{version}\g<2>{version}', html)
 html = re.sub(r'\b\d+ MB · add torrents later',
               f'{std_mb} MB · add torrents later', html)
 html = re.sub(r'\b\d+ MB · WebTorrent bundled',
@@ -25,7 +28,8 @@ html = re.sub(r'(<span class="button-sub">)\d+ MB(</span>)',
 
 for label, count in (('standard url', n_std_url),
                      ('torrents url', n_tor_url),
-                     ('checksum', n_sha)):
+                     ('checksum', n_sha),
+                     ('release notes link', n_notes)):
     if count == 0:
         sys.exit(f'error: no {label} matches in site/index.html — layout changed?')
 open(path, 'w').write(html)
