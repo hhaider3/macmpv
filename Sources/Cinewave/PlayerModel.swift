@@ -83,7 +83,10 @@ final class PlayerModel {
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let engine = MPVEngine()
     @ObservationIgnored let probe = MediaProbe()
-    @ObservationIgnored let magnetStream = MagnetStream()
+    @ObservationIgnored let magnetStream: MagnetStream
+    @ObservationIgnored var moveFileToTrash: (URL) throws -> Void = { url in
+        _ = try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+    }
     @ObservationIgnored private weak var videoView: MPVGLView?
     @ObservationIgnored private var completion = PlaybackCompletion()
     @ObservationIgnored private var didReadLaunchArguments = false
@@ -148,8 +151,9 @@ final class PlayerModel {
         return queue.firstIndex(where: { $0.id == currentID })
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, magnetStream: MagnetStream? = nil) {
         self.defaults = defaults
+        self.magnetStream = magnetStream ?? MagnetStream()
         let storedVolume = defaults.object(forKey: "player.volume") as? Double
         volume = storedVolume.map { min(max($0, 0), 100) } ?? 80
         rememberedPositions = loadRememberedPositions()
@@ -719,7 +723,10 @@ final class PlayerModel {
             isPlaying = false
             magnetStream.start(
                 from: currentItem.url,
-                selectedFileIndex: currentItem.torrentFile?.index
+                selectedFileIndex: currentItem.torrentFile?.index,
+                allowedFileIndexes: Set(queue.compactMap { item in
+                    item.url == currentItem.url ? item.torrentFile?.index : nil
+                })
             ) { [weak self] result in
                 guard let self, self.currentID == itemID else { return }
                 switch result {

@@ -43,6 +43,7 @@ final class MagnetStream {
     private var streamWaitTask: Task<Void, Never>?
     private var temporaryDirectory: URL?
     private var activeIdentifier: String?
+    private var activeAllowedFileIndexes: Set<Int>?
     let downloadDirectory: URL
 
     private struct Selection: Encodable {
@@ -231,6 +232,7 @@ final class MagnetStream {
     func start(
         from source: URL,
         selectedFileIndex: Int? = nil,
+        allowedFileIndexes: Set<Int>? = nil,
         completion: @escaping @MainActor (Result<URL, StreamError>) -> Void
     ) {
         if let selectedFileIndex, selectedFileIndex < 0 {
@@ -248,7 +250,8 @@ final class MagnetStream {
         // Keep the torrent client and its verified piece map alive while the
         // user switches files. The response carries the request identity so an
         // old stream URL cannot be mistaken for the newly selected video.
-        if activeIdentifier == identifier, let process, process.isRunning,
+        if activeIdentifier == identifier, activeAllowedFileIndexes == allowedFileIndexes,
+           let process, process.isRunning,
            let directory = temporaryDirectory {
             streamWaitTask?.cancel()
             requestID = UUID()
@@ -274,8 +277,10 @@ final class MagnetStream {
         let bootstrapURL = directory.appendingPathComponent("webtorrent-bootstrap.mjs")
         let extensions = MediaSupport.extensions.subtracting(["torrent", "magnet", "m3u", "m3u8"]).sorted()
         let extensionsJSON: String
+        let allowedIndexesJSON: String
         do {
             extensionsJSON = String(decoding: try JSONEncoder().encode(extensions), as: UTF8.self)
+            allowedIndexesJSON = String(decoding: try JSONEncoder().encode(allowedFileIndexes.map { Array($0).sorted() }), as: UTF8.self)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try TorrentDownloadRuntime.write(to: scriptURL)
             try Self.writeCompatibilityLoader(
@@ -294,7 +299,7 @@ final class MagnetStream {
             scriptURL.path, helper.webTorrentModuleURL.path, identifier,
             downloadDirectory.path, directory.appendingPathComponent("stream-url").path,
             directory.appendingPathComponent("selection.json").path,
-            extensionsJSON
+            extensionsJSON, allowedIndexesJSON
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["NODE_OPTIONS"] = [environment["NODE_OPTIONS"], "--import=\(bootstrapURL.absoluteString)"]
@@ -315,6 +320,7 @@ final class MagnetStream {
         self.process = process
         temporaryDirectory = directory
         activeIdentifier = identifier
+        activeAllowedFileIndexes = allowedFileIndexes
         waitForStream(process: process, directory: directory, completion: completion)
     }
 
@@ -371,6 +377,7 @@ final class MagnetStream {
         process = nil
         temporaryDirectory = nil
         activeIdentifier = nil
+        activeAllowedFileIndexes = nil
 
         if let processToStop, processToStop.isRunning {
             processToStop.terminationHandler = { _ in
@@ -385,6 +392,13 @@ final class MagnetStream {
         if let directoryToRemove {
             try? FileManager.default.removeItem(at: directoryToRemove)
         }
+    }
+
+    /// Removal waits for the helper to release downloaded files before moving them to Trash.
+    func stopAndWait() {
+        let runningProcess = process
+        stop()
+        runningProcess?.waitUntilExit()
     }
 
     private static func torrentIdentifier(from source: URL) throws -> String {

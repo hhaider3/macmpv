@@ -25,6 +25,7 @@ struct QueueSidebar: View {
                                         }
                                     },
                                     play: player.play,
+                                    finderURL: player.finderURL,
                                     moveItem: { draggedID, destinationID in
                                         withAnimation(.easeOut(duration: 0.18)) {
                                             player.moveQueueItem(id: draggedID, before: destinationID)
@@ -46,7 +47,7 @@ struct QueueSidebar: View {
             }
 
             if let item = player.currentItem {
-                CurrentMediaDetails(item: item)
+                CurrentMediaDetails(item: item, finderURL: player.finderURL)
                     .padding(10)
             }
         }
@@ -150,7 +151,7 @@ struct QueueSidebar: View {
             player.play(item)
         }
         .contextMenu {
-            QueueItemMenu(item: item, play: player.play, remove: player.remove)
+            QueueItemMenu(item: item, finderURL: player.finderURL(for: item), play: player.play, remove: player.remove)
         }
     }
 
@@ -182,6 +183,7 @@ private struct QueueGroupSection: View {
     let currentID: UUID?
     let toggle: () -> Void
     let play: (MediaItem) -> Void
+    let finderURL: (MediaItem) -> URL?
     let moveItem: (UUID, UUID) -> Void
     let removeItem: (MediaItem) -> Void
     let removeGroup: () -> Void
@@ -226,7 +228,8 @@ private struct QueueGroupSection: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-                Button("Remove Collection", role: .destructive, action: removeGroup)
+                Button(group.items.contains(where: { $0.url.isFileURL || MediaSupport.isTorrentSource($0.url) })
+                    ? "Move Collection Files to Trash" : "Remove Collection", role: .destructive, action: removeGroup)
             }
 
             if isExpanded {
@@ -242,7 +245,7 @@ private struct QueueGroupSection: View {
                     }
                     .padding(.leading, 12)
                     .contextMenu {
-                        QueueItemMenu(item: item, play: play, remove: removeItem)
+                        QueueItemMenu(item: item, finderURL: finderURL(item), play: play, remove: removeItem)
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -262,19 +265,29 @@ private struct QueueGroupSection: View {
 
 private struct QueueItemMenu: View {
     let item: MediaItem
+    let finderURL: URL?
     let play: (MediaItem) -> Void
     let remove: (MediaItem) -> Void
 
     var body: some View {
         Button("Play") { play(item) }
-        if item.url.isFileURL {
-            Button("Show in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([item.url])
-            }
+        if let finderURL {
+            ShowInFinderButton(url: finderURL)
         }
         Divider()
-        Button("Remove from Queue", role: .destructive) {
+        Button(item.url.isFileURL || MediaSupport.isTorrentSource(item.url)
+            ? "Move File to Trash" : "Remove from Queue", role: .destructive) {
             remove(item)
+        }
+    }
+}
+
+struct ShowInFinderButton: View {
+    let url: URL
+
+    var body: some View {
+        Button("Show in Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         }
     }
 }
@@ -356,6 +369,7 @@ private struct QueueRow: View {
 
 private struct CurrentMediaDetails: View {
     let item: MediaItem
+    let finderURL: (MediaItem) -> URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -412,6 +426,11 @@ private struct CurrentMediaDetails: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(.white.opacity(0.07), lineWidth: 1)
+        }
+        .contextMenu {
+            if let url = finderURL(item) {
+                ShowInFinderButton(url: url)
+            }
         }
     }
 }

@@ -183,10 +183,10 @@ async function fixture(t, size = 512 * 1024) {
       return response?.requestID === requestID ? response : false
     }, 'No stream response: ' + failures)
   }
-  function launch(identifier = torrentFile) {
+  function launch(identifier = torrentFile, allowedIndexes = null) {
     const child = spawn(process.execPath, [
       '--import=' + path.join(root, 'webtorrent-bootstrap.mjs'), path.join(root, 'runtime.mjs'),
-      wrapper, identifier, saved, output, control, JSON.stringify(['mp4'])
+      wrapper, identifier, saved, output, control, JSON.stringify(['mp4']), JSON.stringify(allowedIndexes)
     ], { stdio: ['ignore', 'ignore', 'pipe'] })
     child.stderr.on('data', chunk => { failures += chunk })
     children.push(child)
@@ -259,6 +259,21 @@ test('switching videos reprioritizes the same running torrent client', { timeout
   assert.equal(selections[0].name, 'episode2.mp4')
   assert.equal(selections[1].name, 'episode10.mp4')
   assert.ok(!selections[1].done.includes('episode2.mp4'), 'Fixture completed before priority switch could be tested')
+})
+
+test('removed torrent files are not selected for background download', { timeout: 30000 }, async t => {
+  const f = await fixture(t)
+  const retained = f.parsed.files.findIndex(file => path.basename(file.path) === 'episode10.mp4')
+  assert.ok(retained >= 0)
+  await f.select('episode10.mp4', 'retained')
+  f.launch(undefined, [retained])
+  await f.ready('retained')
+  const retainedPath = path.join(f.saved, f.parsed.infoHash, 'series', 'episode10.mp4')
+  await until(async () => {
+    try { return (await fs.readFile(retainedPath)).equals(f.payloads.get('episode10.mp4')) } catch { return false }
+  }, 'Retained torrent file did not finish')
+  assert.deepEqual((await f.selections()).map(item => item.name), ['episode10.mp4'])
+  assert.ok(f.requests().every(name => name !== 'episode2.mp4'))
 })
 
 test('serves files with URL-hostile names without 404', { timeout: 30000 }, async t => {

@@ -101,6 +101,11 @@ struct ContentView: View {
                 .transaction { transaction in
                     transaction.animation = nil
                 }
+                .contextMenu {
+                    if let item = player.currentItem, let url = player.finderURL(for: item) {
+                        ShowInFinderButton(url: url)
+                    }
+                }
 
             if !player.hasMedia {
                 WelcomeView(

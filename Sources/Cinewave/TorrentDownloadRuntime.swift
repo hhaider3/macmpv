@@ -14,8 +14,10 @@ enum TorrentDownloadRuntime {
     import { createRequire } from 'node:module'
     import { pathToFileURL } from 'node:url'
 
-    const [modulePath, identifier, downloadRoot, outputPath, controlPath, extensionsJSON] = process.argv.slice(2)
+    const [modulePath, identifier, downloadRoot, outputPath, controlPath, extensionsJSON, allowedIndexesJSON] = process.argv.slice(2)
     const mediaExtensions = new Set(JSON.parse(extensionsJSON))
+    const allowedIndexes = allowedIndexesJSON && allowedIndexesJSON !== 'null'
+      ? new Set(JSON.parse(allowedIndexesJSON)) : null
     const require = createRequire(pathToFileURL(modulePath))
     async function resolveDependency(name) {
       try { return require.resolve(name) } catch (error) {
@@ -116,7 +118,8 @@ enum TorrentDownloadRuntime {
           if (stopping) return
           await atomicWrite(metadataPath, torrent.torrentFile)
           const playable = torrent.files.map((file, index) => ({ file, index }))
-            .filter(({ file }) => mediaExtensions.has(path.extname(file.path).slice(1).toLowerCase()))
+            .filter(({ file, index }) => mediaExtensions.has(path.extname(file.path).slice(1).toLowerCase()) &&
+              (allowedIndexes === null || allowedIndexes.has(index)))
             .sort((a, b) => a.file.path.localeCompare(b.file.path, 'en', { numeric: true, sensitivity: 'base' }))
           if (!playable.length) throw new Error('No supported media files in this torrent')
           let selectedIndex = null

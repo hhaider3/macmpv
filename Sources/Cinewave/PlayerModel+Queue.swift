@@ -1,6 +1,19 @@
 import Foundation
 
 extension PlayerModel {
+    func finderURL(for item: MediaItem) -> URL? {
+        if MediaSupport.isTorrentSource(item.url) {
+            guard let file = item.torrentFile,
+                  let directory = TorrentStorage.downloadDirectory(
+                    for: item.url, under: magnetStream.downloadDirectory
+                  ),
+                  let url = TorrentStorage.downloadedFileURL(for: file, in: directory),
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
+        }
+        return item.url.isFileURL ? item.url : nil
+    }
+
     var queueGroups: [MediaQueueGroup] {
         var groups: [MediaQueueGroup] = []
         var groupIndexes: [UUID: Int] = [:]
@@ -218,40 +231,120 @@ extension PlayerModel {
     }
 
     func remove(_ item: MediaItem) {
-        guard let index = queue.firstIndex(where: { $0.id == item.id }) else { return }
-        let wasCurrent = item.id == currentID
-        if wasCurrent {
-            rememberCurrentProgress(saveImmediately: true)
-        }
-        queue.remove(at: index)
-        if !queue.contains(where: { $0.groupID == item.groupID }) {
-            expandedQueueGroupIDs.remove(item.groupID)
-        }
-        persistQueueState()
-        guard wasCurrent else { return }
-
-        if queue.isEmpty {
-            clearCurrentPlayback()
-        } else {
-            play(queue[min(index, queue.count - 1)])
-        }
+        guard let queuedItem = queue.first(where: { $0.id == item.id }) else { return }
+        removeItems([queuedItem], removingGroup: false)
     }
 
     func removeQueueGroup(_ groupID: UUID) {
-        guard let firstIndex = queue.firstIndex(where: { $0.groupID == groupID }) else { return }
-        let wasCurrent = currentItem?.groupID == groupID
-        if wasCurrent {
+        removeItems(queue.filter { $0.groupID == groupID }, removingGroup: true)
+    }
+
+    private func removeItems(_ items: [MediaItem], removingGroup: Bool) {
+        guard let firstItem = items.first,
+              let firstIndex = queue.firstIndex(where: { $0.id == firstItem.id }) else { return }
+
+        let selectedIDs = Set(items.map(\.id))
+        var targetByID: [UUID: URL] = [:]
+        var extraTargets: Set<URL> = []
+        var invalidIDs: Set<UUID> = []
+        var issues: [String] = []
+        var torrentDirectories: [URL: URL] = [:]
+
+        for item in items {
+            if MediaSupport.isTorrentSource(item.url) {
+                let directory: URL
+                if let cached = torrentDirectories[item.url] {
+                    directory = cached
+                } else if let resolved = TorrentStorage.downloadDirectory(
+                    for: item.url, under: magnetStream.downloadDirectory
+                ) {
+                    torrentDirectories[item.url] = resolved
+                    directory = resolved
+                } else {
+                    invalidIDs.insert(item.id)
+                    issues.append("Could not locate downloads for \(item.title).")
+                    continue
+                }
+
+                let removesLastItem = !queue.contains {
+                    $0.groupID == item.groupID && !selectedIDs.contains($0.id)
+                }
+                if removingGroup || removesLastItem {
+                    targetByID[item.id] = directory
+                    extraTargets.insert(magnetStream.downloadDirectory
+                        .appendingPathComponent(".metadata", isDirectory: true)
+                        .appendingPathComponent("\(directory.lastPathComponent).torrent"))
+                    if item.url.isFileURL {
+                        extraTargets.insert(item.url.standardizedFileURL)
+                    }
+                } else if let file = item.torrentFile,
+                          let fileURL = TorrentStorage.downloadedFileURL(for: file, in: directory) {
+                    targetByID[item.id] = fileURL
+                } else {
+                    invalidIDs.insert(item.id)
+                    issues.append("Could not locate downloaded file \(item.title).")
+                }
+            } else if item.url.isFileURL {
+                targetByID[item.id] = item.url.standardizedFileURL
+            }
+        }
+
+        let stoppedCurrentTorrent = currentItem.map { current in
+            MediaSupport.isTorrentSource(current.url) && torrentDirectories[current.url] != nil
+        } ?? false
+        if stoppedCurrentTorrent {
+            rememberCurrentProgress(saveImmediately: true)
+            engine.stop()
+            magnetStream.stopAndWait()
+            isPlaying = false
+            isLoading = false
+        }
+
+        var failedTargets: Set<URL> = []
+        for url in Set(targetByID.values).union(extraTargets).sorted(by: { $0.path < $1.path }) {
+            do {
+                try moveFileToTrash(url)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(nsError.code) {
+                    continue
+                }
+                failedTargets.insert(url)
+                issues.append("Could not move \(url.lastPathComponent) to Trash: \(error.localizedDescription)")
+            }
+        }
+        let removed = items.filter { item in
+            !invalidIDs.contains(item.id) &&
+                (targetByID[item.id].map { !failedTargets.contains($0) } ?? true)
+        }
+        let removedIDs = Set(removed.map(\.id))
+        let wasCurrent = currentID.map(removedIDs.contains) ?? false
+        if wasCurrent && !stoppedCurrentTorrent {
             rememberCurrentProgress(saveImmediately: true)
         }
-        queue.removeAll { $0.groupID == groupID }
-        expandedQueueGroupIDs.remove(groupID)
+        queue.removeAll { removedIDs.contains($0.id) }
+        expandedQueueGroupIDs.formIntersection(Set(queue.map(\.groupID)))
+        for item in removed where targetByID[item.id] != nil {
+            let key = persistenceKey(for: item)
+            rememberedPositions.removeValue(forKey: key)
+            rememberedMarkers.removeValue(forKey: key)
+        }
+        persistStores()
         persistQueueState()
 
-        guard wasCurrent else { return }
-        if queue.isEmpty {
-            clearCurrentPlayback()
-        } else {
-            play(queue[min(firstIndex, queue.count - 1)])
+        if wasCurrent {
+            if queue.isEmpty {
+                clearCurrentPlayback()
+            } else {
+                play(queue[min(firstIndex, queue.count - 1)])
+            }
+        } else if stoppedCurrentTorrent, let currentItem {
+            play(currentItem)
+        }
+        if let firstIssue = issues.first {
+            let more = issues.count > 1 ? " (and \(issues.count - 1) more)" : ""
+            errorMessage = firstIssue + more
         }
     }
 
