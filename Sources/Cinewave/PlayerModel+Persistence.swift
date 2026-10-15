@@ -6,6 +6,13 @@ extension PlayerModel {
         var outroStart: Double?
     }
 
+    /// A resume point plus when it was last written, so the store can drop the
+    /// least recently watched entries instead of growing forever.
+    struct RememberedPosition: Codable, Equatable {
+        var seconds: Double
+        var updatedAt: Date
+    }
+
     struct QueuePersistence: Codable {
         var items: [MediaItem]
         var expandedGroupIDs: [UUID]
@@ -19,20 +26,20 @@ extension PlayerModel {
         let key = persistenceKey(for: currentItem)
         var didFinishEntry = false
         if position >= 5, duration <= 0 || position < duration - 10 {
-            rememberedPositions[key] = position
+            rememberedPositions[key] = RememberedPosition(seconds: position, updatedAt: Date())
         } else if duration > 0, position >= duration - 10 {
             didFinishEntry = rememberedPositions.removeValue(forKey: key) != nil
         }
 
         if saveImmediately {
             lastPersistedPosition = position
-            persistStores()
+            persistPositions()
         } else if didFinishEntry {
             // Deletions happen once per file end — persist them now instead of
             // through the 1-second gate, so a crash cannot resurrect a stale
             // end-of-file resume position before completion is processed.
             lastPersistedPosition = position
-            persistStores()
+            persistPositions()
         } else {
             // Snapshots arrive many times per second. A debounce task never fired
             // during playback (each snapshot cancelled the pending wait), so
@@ -40,7 +47,7 @@ extension PlayerModel {
             // a mid-playback crash then costs at most one second of resume data.
             guard lastPersistedPosition.map({ abs(position - $0) >= 1 }) ?? true else { return }
             lastPersistedPosition = position
-            persistStores()
+            persistPositions()
         }
     }
 
@@ -50,16 +57,49 @@ extension PlayerModel {
             introEnd: introEndMarker,
             outroStart: outroStartMarker
         )
-        persistStores()
+        persistMarkers()
     }
 
     func persistStores() {
+        persistPositions()
+        persistMarkers()
+    }
+
+    /// Runs about once per second during playback, so it writes only the
+    /// positions store, capped to the most recently watched entries.
+    func persistPositions() {
+        let overflow = rememberedPositions.count - Self.maximumRememberedPositions
+        if overflow > 0 {
+            let oldest = rememberedPositions
+                .sorted { $0.value.updatedAt < $1.value.updatedAt }
+                .prefix(overflow)
+                .map(\.key)
+            for key in oldest {
+                rememberedPositions.removeValue(forKey: key)
+            }
+        }
         if let positions = try? JSONEncoder().encode(rememberedPositions) {
             defaults.set(positions, forKey: Self.positionsDefaultsKey)
         }
+    }
+
+    /// Markers change only when the user sets or clears them.
+    func persistMarkers() {
         if let markers = try? JSONEncoder().encode(rememberedMarkers) {
             defaults.set(markers, forKey: Self.markersDefaultsKey)
         }
+    }
+
+    /// Reads the dated positions store, migrating the original undated
+    /// [path: seconds] store once. Migrated entries count as the oldest.
+    func loadRememberedPositions() -> [String: RememberedPosition] {
+        if let positions = load([String: RememberedPosition].self, key: Self.positionsDefaultsKey) {
+            return positions
+        }
+        guard let legacy = load([String: Double].self, key: Self.legacyPositionsDefaultsKey) else {
+            return [:]
+        }
+        return legacy.mapValues { RememberedPosition(seconds: $0, updatedAt: .distantPast) }
     }
 
     func persistQueueState() {

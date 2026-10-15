@@ -92,7 +92,7 @@ final class PlayerModel {
     @ObservationIgnored private var lastPreviewSeekUptime: TimeInterval = -.infinity
     @ObservationIgnored private var wasPlayingBeforeScrub = false
     @ObservationIgnored private var pendingResumePosition: Double?
-    @ObservationIgnored var rememberedPositions: [String: Double] = [:]
+    @ObservationIgnored var rememberedPositions: [String: RememberedPosition] = [:]
     @ObservationIgnored var rememberedMarkers: [String: PlaybackMarkers] = [:]
     /// Position at the last progress write; snapshots arriving between 1-second
     /// deltas are ignored so playback persistence costs ~one write per second.
@@ -104,7 +104,9 @@ final class PlayerModel {
     @ObservationIgnored private var controlsBottomInset: Double = 0
 
     private let previewSeekInterval: TimeInterval = 0.18
-    static let positionsDefaultsKey = "playback.positions.v1"
+    static let positionsDefaultsKey = "playback.positions.v2"
+    static let legacyPositionsDefaultsKey = "playback.positions.v1"
+    static let maximumRememberedPositions = 500
     static let markersDefaultsKey = "playback.markers.v1"
     static let subtitleSettingsKey = "subtitles.settings.v1"
     static let queueDefaultsKey = "player.queue.v1"
@@ -150,7 +152,12 @@ final class PlayerModel {
         self.defaults = defaults
         let storedVolume = defaults.object(forKey: "player.volume") as? Double
         volume = storedVolume.map { min(max($0, 0), 100) } ?? 80
-        rememberedPositions = load([String: Double].self, key: Self.positionsDefaultsKey) ?? [:]
+        rememberedPositions = loadRememberedPositions()
+        if defaults.object(forKey: Self.legacyPositionsDefaultsKey) != nil {
+            // Write the migrated store before dropping the old one.
+            persistPositions()
+            defaults.removeObject(forKey: Self.legacyPositionsDefaultsKey)
+        }
         rememberedMarkers = load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
         subtitleSettings = load(SubtitleSettings.self, key: Self.subtitleSettingsKey) ?? SubtitleSettings()
 
@@ -325,7 +332,7 @@ final class PlayerModel {
         engineTitle = nil
         isLoading = true
         let key = persistenceKey(for: item)
-        pendingResumePosition = rememberedPositions[key]
+        pendingResumePosition = rememberedPositions[key]?.seconds
         let markers = rememberedMarkers[key]
         introEndMarker = markers?.introEnd
         outroStartMarker = markers?.outroStart
@@ -546,7 +553,7 @@ final class PlayerModel {
         introEndMarker = nil
         outroStartMarker = nil
         rememberedMarkers.removeValue(forKey: persistenceKey(for: currentItem))
-        persistStores()
+        persistMarkers()
     }
 
     func skipIntro() {
@@ -962,7 +969,7 @@ final class PlayerModel {
     private func handlePlaybackEnded() {
         if let currentItem {
             rememberedPositions.removeValue(forKey: persistenceKey(for: currentItem))
-            persistStores()
+            persistPositions()
         }
         switch repeatMode {
         case .one:

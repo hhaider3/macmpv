@@ -72,6 +72,12 @@ final class MPVEngine {
     private let eventLoopLock = NSLock()
     nonisolated(unsafe) private var bgSnapshot = Snapshot(position: 0, duration: 0, paused: true, muted: false, volume: 80, speed: 1, eofReached: false, title: nil)
     nonisolated(unsafe) private var bgLastEmitted: Snapshot?
+    nonisolated(unsafe) private var bgLastEmitUptime: TimeInterval = 0
+    /// time-pos changes every video frame. Publishing each one re-rendered the
+    /// controls (and the menu bar, via canGoPrevious) at the frame rate, so
+    /// position-only progress is coalesced to this interval. Seeks and every
+    /// other property change still publish immediately.
+    nonisolated private static let positionPublishInterval: TimeInterval = 0.25
 
     nonisolated private var shouldKeepRunning: Bool {
         get { eventLoopLock.lock(); defer { eventLoopLock.unlock() }; return shouldRunEventLoop }
@@ -99,7 +105,14 @@ final class MPVEngine {
         var options: [(String, String)] = [
             ("config", "no"),
             ("vo", "libmpv"),
-            ("hwdec", "auto-copy-safe"),
+            // Decode straight into GPU textures. Copy-back (auto-copy-safe) cost
+            // a 4K frame upload on the main thread every frame and about twice
+            // the CPU; random-seek testing showed no texture problems without it.
+            ("hwdec", "auto-safe"),
+            // The view's display link already paces frames. With mpv's default
+            // render-ahead offset, mpv_render_context_render blocked the main
+            // thread until each frame's display time (most of its time in 4K).
+            ("video-timing-offset", "0"),
             ("hr-seek-framedrop", "yes"),
             ("demuxer-readahead-secs", "20"),
             ("demuxer-max-bytes", "268435456"),
@@ -336,6 +349,16 @@ final class MPVEngine {
         if changed {
             // Publish only if snapshot actually differs from last emitted.
             if bgLastEmitted != bgSnapshot {
+                let now = ProcessInfo.processInfo.systemUptime
+                // Any non-position change publishes, so a pending difference from
+                // a time-pos event is position-only progress. A jump of a second
+                // or more is a seek and must show at once.
+                if userdata == 1, let last = bgLastEmitted,
+                   abs(bgSnapshot.position - last.position) < 1,
+                   now - bgLastEmitUptime < Self.positionPublishInterval {
+                    return
+                }
+                bgLastEmitUptime = now
                 let snap = bgSnapshot
                 bgLastEmitted = snap
                 Task { @MainActor [weak self] in

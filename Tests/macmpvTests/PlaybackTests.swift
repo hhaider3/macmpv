@@ -36,6 +36,36 @@ struct PlaybackTests {
         #expect(player.displayTitle == "macmpv")
     }
 
+    @Test @MainActor func resumePositionsMigrateAndKeepOnlyTheMostRecent() throws {
+        let suite = "macmpv-tests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = ["/tmp/old.mkv": 120.0]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: PlayerModel.legacyPositionsDefaultsKey)
+
+        let player = PlayerModel(defaults: defaults)
+        #expect(player.rememberedPositions["/tmp/old.mkv"]?.seconds == 120)
+        #expect(defaults.object(forKey: PlayerModel.legacyPositionsDefaultsKey) == nil)
+
+        let limit = PlayerModel.maximumRememberedPositions
+        let start = Date(timeIntervalSince1970: 1_000)
+        for index in 0..<(limit + 10) {
+            player.rememberedPositions["/tmp/\(index).mkv"] = .init(
+                seconds: 60,
+                updatedAt: start.addingTimeInterval(Double(index))
+            )
+        }
+        player.persistPositions()
+
+        let reloaded = PlayerModel(defaults: defaults)
+        #expect(reloaded.rememberedPositions.count == limit)
+        // The migrated entry and the ten oldest dated entries are dropped first.
+        #expect(reloaded.rememberedPositions["/tmp/old.mkv"] == nil)
+        #expect(reloaded.rememberedPositions["/tmp/9.mkv"] == nil)
+        #expect(reloaded.rememberedPositions["/tmp/11.mkv"] != nil)
+        #expect(reloaded.rememberedPositions["/tmp/\(limit + 9).mkv"] != nil)
+    }
+
     @Test func completionIsConsumedOnceAndRearmedAfterSeek() {
         var completion = PlaybackCompletion()
         var results: [Bool] = []
