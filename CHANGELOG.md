@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.8 — 2026-10-15
 
-- Automatic updates: packaged builds check for a new release at launch and daily, download it from GitHub Releases in the background, and install it when the app quits. Updates are verified with an EdDSA signature. **Check for Updates…** and **Install Updates Automatically** are in the macmpv menu. Standard and + Torrents builds each update to their own variant.
+- Automatic updates: macmpv checks for a new release at launch and daily, downloads it from GitHub Releases in the background, and installs it when you quit. Every update is verified with an EdDSA signature before it is installed. **Check for Updates…** and **Install Updates Automatically** are in the macmpv menu, and Standard and + Torrents builds each update to their own variant.
+- Earlier versions have no updater, so install 1.8 manually once; later versions arrive automatically.
+
+Both downloads require macOS 26 or newer on Apple Silicon. The Standard build bundles playback dependencies; the + Torrents build also includes Node and WebTorrent. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
 
 ## 1.7.1 — 2026-10-15
 
