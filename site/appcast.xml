@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>macmpv</title>
+    <link>https://macmpv.pages.dev/</link>
+    <item>
+      <title>Version 1.8</title>
+      <pubDate>Fri, 16 Oct 2026 00:31:44 +0000</pubDate>
+      <sparkle:version>202610151730</sparkle:version>
+      <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/hhaider3/macmpv/releases/tag/v1.8</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/hhaider3/macmpv/releases/download/v1.8/macmpv-1.8-arm64.dmg" length="33088543" type="application/octet-stream" sparkle:edSignature="14FTw4Xf3Cox9CrqkvUX7QKZJ00e8bAQcqin43Req3bpcapIWpT05YZfwqqsyF2ukq+7nU2EAg3RfZoQU3OGDw=="/>
+    </item>
+  </channel>
+</rss>
