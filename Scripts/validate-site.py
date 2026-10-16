@@ -57,4 +57,20 @@ for asset in parser.assets:
     parsed = urlsplit(asset)
     if not parsed.scheme: assert (ROOT / parsed.path).is_file(), f'Missing asset {asset}'
 assert sum('/releases/download/' in link for link in parser.links) == 4
-print(f'Site valid: {len(parser.ids)} unique anchors, {len(parser.assets)} assets, four download links.')
+# Update feeds (written by release.sh) must offer the same signed dmgs the
+# download buttons link to, so updating and downloading agree.
+import xml.etree.ElementTree as ET
+SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
+feeds = 0
+for name, suffix in (('appcast.xml', '.dmg'), ('appcast-torrents.xml', '-torrents.dmg')):
+    path = ROOT / name
+    if not path.exists():
+        continue
+    enclosure = ET.parse(path).getroot().find('channel/item/enclosure')
+    assert enclosure is not None, f'{name} has no enclosure'
+    url = enclosure.get('url', '')
+    assert url.endswith(suffix) and (suffix != '.dmg' or not url.endswith('-torrents.dmg')), f'{name} offers {url}'
+    assert url in parser.links, f'{name} offers {url}, which no download button links to'
+    assert enclosure.get(SPARKLE + 'edSignature'), f'{name} enclosure is unsigned'
+    feeds += 1
+print(f'Site valid: {len(parser.ids)} unique anchors, {len(parser.assets)} assets, four download links, {feeds} update feeds.')

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Automatic updates: packaged builds check for a new release at launch and daily, download it from GitHub Releases in the background, and install it when the app quits. Updates are verified with an EdDSA signature. **Check for Updates…** and **Install Updates Automatically** are in the macmpv menu. Standard and + Torrents builds each update to their own variant.
+
 ## 1.7.1 — 2026-10-15
 
 - Fixed **Save Screenshot** (⇧⌘S), which failed in 1.6 and 1.7 because VideoToolbox frames stay on the GPU where mpv's screenshot code cannot read them. macmpv now switches to copy-back decoding for a moment to capture the frame, then goes back to full hardware decoding.

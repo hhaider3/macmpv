@@ -10,6 +10,10 @@ let package = Package(
     products: [
         .executable(name: "macmpv", targets: ["macmpv"])
     ],
+    dependencies: [
+        // Software updates, verified with an EdDSA key independent of GitHub.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+    ],
     targets: [
         .systemLibrary(
             name: "CMPV",
@@ -21,7 +25,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "macmpv",
-            dependencies: ["CMPV"],
+            dependencies: [
+                "CMPV",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources/Cinewave",
             linkerSettings: [
                 .linkedFramework("AppKit"),

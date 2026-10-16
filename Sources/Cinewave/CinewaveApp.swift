@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MacMPVApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var player = PlayerModel()
+    @State private var updater = AppUpdater()
 
     var body: some Scene {
         Window("macmpv", id: "player") {
@@ -29,15 +30,27 @@ struct MacMPVApp: App {
         .defaultSize(width: 1180, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            MacMPVCommands(player: player)
+            MacMPVCommands(player: player, updater: updater)
         }
     }
 }
 
 struct MacMPVCommands: Commands {
     let player: PlayerModel
+    @Bindable var updater: AppUpdater
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            if updater.isEnabled {
+                Button("Check for Updates…") {
+                    updater.checkForUpdates()
+                }
+                .disabled(!updater.canCheckForUpdates)
+
+                Toggle("Install Updates Automatically", isOn: $updater.automaticallyInstallsUpdates)
+            }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Open Media…") {
                 player.openPanel()

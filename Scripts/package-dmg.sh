@@ -206,12 +206,23 @@ if [[ "$MODE" == "torrents" ]]; then
   du -sh "$WEBTORRENT_RESOURCES_DIR"
 fi
 
+# ---- Updates ----
+# Each variant follows its own feed so it updates to the matching build. The
+# feeds are written by release.sh and served from the website.
+FEED_URL="https://macmpv.pages.dev/appcast.xml"
+[[ "$MODE" == "torrents" ]] && FEED_URL="https://macmpv.pages.dev/appcast-torrents.xml"
+/usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :SUFeedURL string $FEED_URL" "$CONTENTS_DIR/Info.plist"
+
 # ---- Sign ----
 echo "==> Code signing (${SIGN_IDENTITY})"
 sign_flags=(--force --sign "$SIGN_IDENTITY")
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
   sign_flags+=(--options runtime --timestamp)
 fi
+# Sparkle lives in Frameworks, which was rebuilt above; copy and sign it now.
+BIN_DIR=$(swift build -c release --show-bin-path 2>/dev/null || swift build -c release --disable-sandbox --show-bin-path)
+zsh "$SCRIPT_DIR/bundle-sparkle.sh" "$BIN_DIR" "$APP_DIR" "${sign_flags[@]}"
 for f in "$FRAMEWORKS_DIR"/*.dylib "$MACOS_DIR/ffprobe"; do
   codesign "${sign_flags[@]}" "$f"
 done

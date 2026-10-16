@@ -32,6 +32,7 @@ cp "$BIN_DIR/macmpv" "$MACOS_DIR/macmpv"
 cp "$PROJECT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$PROJECT_DIR/Resources/macmpv.icns" "$RESOURCES_DIR/macmpv.icns"
 chmod +x "$MACOS_DIR/macmpv"
+zsh "$SCRIPT_DIR/bundle-sparkle.sh" "$BIN_DIR" "$APP_DIR"
 
 codesign --force --deep --sign - "$APP_DIR"
 echo "$APP_DIR"

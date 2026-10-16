@@ -42,7 +42,9 @@ fi
 if [[ -n "${1:-}" ]]; then
   echo "==> Bumping version to $VERSION"
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d)" "$PLIST"
+  # Sparkle compares CFBundleVersion, so it must grow with every release,
+  # including several on one day.
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M)" "$PLIST"
   # The release tags HEAD, so the bump must be part of pushed HEAD — commit it
   # now; the explicit source push below makes this commit available to gh.
   # Guarded so a rerun
@@ -73,6 +75,20 @@ STD_SHA=$(shasum -a 256 "$STD_DMG" | awk '{print $1}')
 TOR_SHA=$(shasum -a 256 "$TOR_DMG" | awk '{print $1}')
 echo "==> standard: $(basename $STD_DMG)  $STD_SHA"
 echo "==> torrents: $(basename $TOR_DMG)  $TOR_SHA"
+
+echo "==> Signing updates and writing the update feeds"
+SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+[[ -x "$SIGN_UPDATE" ]] || die "Sparkle's sign_update is missing (swift package resolve)"
+BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "dist/macmpv.app/Contents/Info.plist")
+REPO_URL="https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')"
+STD_SIGNED=$("$SIGN_UPDATE" --account macmpv "$STD_DMG")
+TOR_SIGNED=$("$SIGN_UPDATE" --account macmpv "$TOR_DMG")
+python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/appcast.xml" "macmpv" \
+  "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v$VERSION/${STD_DMG:t}" \
+  "$REPO_URL/releases/tag/v$VERSION" "$STD_SIGNED"
+python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/appcast-torrents.xml" "macmpv + Torrents" \
+  "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v${VERSION}t/${TOR_DMG:t}" \
+  "$REPO_URL/releases/tag/v${VERSION}t" "$TOR_SIGNED"
 
 echo "==> Patching site/index.html"
 python3 "$SCRIPT_DIR/update-downloads.py" "$PROJECT_DIR/site/index.html" "$VERSION" "$STD_SHA" "$STD_DMG" "$TOR_DMG"

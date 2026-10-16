@@ -197,6 +197,33 @@ and publishes both GitHub releases (`vX.Y` and `vX.Yt`) via the `gh` CLI — see
 and leaves the site changes for you to commit and push, which deploys them via
 Cloudflare Pages.
 
+## Updates
+
+Packaged builds update themselves with [Sparkle](https://sparkle-project.org/).
+At launch and once a day, the app reads its variant's feed
+(`https://macmpv.pages.dev/appcast.xml`, or `appcast-torrents.xml` for the
+"+ Torrents" build), downloads a newer DMG from GitHub Releases in the
+background, and installs it when the app quits. **Check for Updates…** and
+**Install Updates Automatically** live in the macmpv menu. Development builds
+(`swift run`, `make app`) have no feed and never update themselves;
+`MACMPV_UPDATE_FEED=<url>` points any packaged build at a test feed.
+
+Every update must carry an EdDSA signature matching `SUPublicEDKey` in
+`Resources/Info.plist`, so a replaced GitHub asset alone cannot ship code.
+The private key lives in the login keychain under the account `macmpv`
+(created with Sparkle's `generate_keys --account macmpv`). `make release`
+signs both DMGs with it, writes the two feeds into `site/`, and gives each
+release a unique build number (`CFBundleVersion` = date and time), which
+Sparkle uses to decide what is newer. Back up the key somewhere safe; without
+it, existing installs cannot accept new updates:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account macmpv -x macmpv-sparkle-key.txt
+```
+
+Never commit that file. Versions before 1.8 have no updater, so their users
+install 1.8 manually once.
+
 ## Troubleshooting
 
 **`sandbox-exec: sandbox_apply: Operation not permitted`**
