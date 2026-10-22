@@ -4,13 +4,13 @@
     <title>macmpv</title>
     <link>https://macmpv.pages.dev/</link>
     <item>
-      <title>Version 1.8</title>
-      <pubDate>Fri, 16 Oct 2026 00:31:44 +0000</pubDate>
-      <sparkle:version>202610151730</sparkle:version>
-      <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
+      <title>Version 1.9</title>
+      <pubDate>Thu, 22 Oct 2026 06:28:51 +0000</pubDate>
+      <sparkle:version>202610212325</sparkle:version>
+      <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/hhaider3/macmpv/releases/tag/v1.8</sparkle:releaseNotesLink>
-      <enclosure url="https://github.com/hhaider3/macmpv/releases/download/v1.8/macmpv-1.8-arm64.dmg" length="33088543" type="application/octet-stream" sparkle:edSignature="14FTw4Xf3Cox9CrqkvUX7QKZJ00e8bAQcqin43Req3bpcapIWpT05YZfwqqsyF2ukq+7nU2EAg3RfZoQU3OGDw=="/>
+      <sparkle:releaseNotesLink>https://github.com/hhaider3/macmpv/releases/tag/v1.9</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/hhaider3/macmpv/releases/download/v1.9/macmpv-1.9-arm64.dmg" length="33066710" type="application/octet-stream" sparkle:edSignature="TfJrnLiB/QJt+ZXYwwA4x5grQQLBls7F5WL9Sntw4cv6FhEm/4a8iOQ0Tal0P88l+lOlAOG1Rh/dS0ycJ7LtAA=="/>
     </item>
   </channel>
 </rss>
