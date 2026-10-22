@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9 — 2026-10-21
+
+- Torrents stop sharing once every queued video is downloaded. Playback continues from the saved files, and macmpv leaves the swarm instead of uploading until you close the torrent.
+- The queue shows how much of each torrent video is downloaded, or **LOCAL** once it is saved, and Now Playing says whether it is streaming or playing from local storage. Downloads from earlier versions are estimated from the files on disk.
+- Downloaded torrent videos play straight from disk, so switching to another torrent collection is as quick as opening a local file instead of waiting for the whole torrent to be re-checked. Torrents downloaded before 1.9 are checked once, the first time you open them.
+
+Both downloads require macOS 26 or newer on Apple Silicon. The Standard build bundles playback dependencies; the + Torrents build also includes Node and WebTorrent. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
+
 ## 1.8 — 2026-10-15
 
 - Automatic updates: macmpv checks for a new release at launch and daily, downloads it from GitHub Releases in the background, and installs it when you quit. Every update is verified with an EdDSA signature before it is installed. **Check for Updates…** and **Install Updates Automatically** are in the macmpv menu, and Standard and + Torrents builds each update to their own variant.
