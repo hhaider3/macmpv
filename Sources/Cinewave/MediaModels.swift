@@ -89,6 +89,35 @@ struct TorrentFile: Codable, Hashable, Sendable {
     }
 }
 
+/// What the torrent helper last saved for each media file, keyed by file index.
+struct TorrentProgress: Decodable, Equatable, Sendable {
+    struct File: Decodable, Equatable, Sendable {
+        let downloaded: Int64
+        let done: Bool
+        /// Estimated from disk usage rather than verified by the helper.
+        var measuredOnDisk = false
+
+        private enum CodingKeys: String, CodingKey {
+            case downloaded, done
+        }
+    }
+
+    let files: [String: File]
+}
+
+enum TorrentDownloadState: Equatable, Sendable {
+    case downloading(percent: Int)
+    /// Fully saved; playback reads the file from disk.
+    case local
+
+    var label: String {
+        switch self {
+        case .downloading(let percent): "\(percent)%"
+        case .local: "LOCAL"
+        }
+    }
+}
+
 struct MediaMetadata: Hashable, Codable, Sendable {
     var duration: Double?
     var width: Int?

@@ -14,6 +14,27 @@ extension PlayerModel {
         return item.url.isFileURL ? item.url : nil
     }
 
+    func torrentDownloadState(for item: MediaItem) -> TorrentDownloadState? {
+        guard let file = item.torrentFile,
+              let hash = torrentInfoHashes[item.url],
+              let saved = torrentProgress[hash]?.files[String(file.index)] else { return nil }
+        if saved.done { return .local }
+        // 100% is reserved for verified files, which show as local instead.
+        let percent = file.length > 0 ? Int(saved.downloaded * 100 / file.length) : 0
+        return .downloading(percent: min(max(percent, 0), 99))
+    }
+
+    /// A torrent file the helper verified as fully saved, which can play from
+    /// disk without the helper re-verifying the whole torrent first.
+    func verifiedDownloadURL(for item: MediaItem) -> URL? {
+        guard let file = item.torrentFile,
+              let hash = torrentInfoHashes[item.url],
+              let saved = torrentProgress[hash]?.files[String(file.index)],
+              saved.done, !saved.measuredOnDisk,
+              let url = finderURL(for: item) else { return nil }
+        return url
+    }
+
     var queueGroups: [MediaQueueGroup] {
         var groups: [MediaQueueGroup] = []
         var groupIndexes: [UUID: Int] = [:]
@@ -274,6 +295,9 @@ extension PlayerModel {
                     extraTargets.insert(magnetStream.downloadDirectory
                         .appendingPathComponent(".metadata", isDirectory: true)
                         .appendingPathComponent("\(directory.lastPathComponent).torrent"))
+                    extraTargets.insert(TorrentStorage.progressURL(
+                        forInfoHash: directory.lastPathComponent, under: magnetStream.downloadDirectory
+                    ))
                     if item.url.isFileURL {
                         extraTargets.insert(item.url.standardizedFileURL)
                     }

@@ -87,6 +87,8 @@ struct QueueRemovalTests {
         try Data("one".utf8).write(to: first)
         try Data("two".utf8).write(to: second)
         try torrent.write(to: metadata)
+        let progress = TorrentStorage.progressURL(forInfoHash: hash, under: downloads)
+        try Data(#"{"files":{}}"#.utf8).write(to: progress)
 
         let groupID = UUID()
         let firstItem = MediaItem(url: source,
@@ -112,7 +114,85 @@ struct QueueRemovalTests {
         #expect(player.queue.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: collection.path))
         #expect(!FileManager.default.fileExists(atPath: metadata.path))
+        #expect(!FileManager.default.fileExists(atPath: progress.path))
         #expect(!FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test @MainActor func torrentRowsShowSavedProgressOrLocal() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let hash = String(repeating: "ab", count: 20)
+        let source = URL(string: "magnet:?xt=urn:btih:\(hash)")!
+        let downloads = fixture.root.appendingPathComponent("downloads")
+        let collection = downloads.appendingPathComponent(hash)
+        try FileManager.default.createDirectory(at: collection, withIntermediateDirectories: true)
+        let progress = TorrentStorage.progressURL(forInfoHash: hash, under: downloads)
+        try FileManager.default.createDirectory(at: progress.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"""
+        {"files":{"0":{"downloaded":400,"done":true},"1":{"downloaded":250,"done":false},"2":{"downloaded":1000,"done":false},"3":{"downloaded":1000,"done":true}}}
+        """#.utf8).write(to: progress)
+        for index in 0..<3 {
+            try Data().write(to: collection.appendingPathComponent("\(index).mp4"))
+        }
+
+        let items = (0..<5).map { index in
+            MediaItem(url: source,
+                torrentFile: TorrentFile(index: index, name: "\(index).mp4", path: "\(index).mp4", length: 1000),
+                groupKind: .torrent)
+        }
+        let player = PlayerModel(defaults: fixture.defaults,
+            magnetStream: MagnetStream(downloadDirectory: downloads))
+        player.queue = items
+        await player.refreshTorrentProgress()
+
+        #expect(player.torrentDownloadState(for: items[0]) == .local)
+        #expect(player.torrentDownloadState(for: items[1]) == .downloading(percent: 25))
+        // Every byte arrived but the last piece is not verified yet.
+        #expect(player.torrentDownloadState(for: items[2]) == .downloading(percent: 99))
+        // Saved as done, then removed from disk.
+        #expect(player.torrentDownloadState(for: items[3]) == nil)
+        #expect(player.torrentDownloadState(for: items[4]) == nil)
+        #expect(player.torrentDownloadState(for: MediaItem(url: source)) == nil)
+        // Only helper-verified files skip the helper and play from disk.
+        #expect(player.verifiedDownloadURL(for: items[0]) == collection.appendingPathComponent("0.mp4"))
+        #expect(player.verifiedDownloadURL(for: items[1]) == nil)
+        #expect(player.verifiedDownloadURL(for: items[3]) == nil)
+    }
+
+    @Test @MainActor func torrentDownloadsWithoutSavedProgressAreReadFromDisk() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let hash = String(repeating: "cd", count: 20)
+        let source = URL(string: "magnet:?xt=urn:btih:\(hash)")!
+        let downloads = fixture.root.appendingPathComponent("downloads")
+        let collection = downloads.appendingPathComponent(hash)
+        try FileManager.default.createDirectory(at: collection, withIntermediateDirectories: true)
+        let length: Int64 = 64 * 1_048_576
+        try Data(count: Int(length)).write(to: collection.appendingPathComponent("complete.mp4"))
+        // A partial download: full logical size, but only its last block written.
+        // APFS leaves a hole only for gaps of 16 MB or more.
+        let partialURL = collection.appendingPathComponent("partial.mp4")
+        FileManager.default.createFile(atPath: partialURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: partialURL)
+        try handle.seek(toOffset: UInt64(length - 1))
+        try handle.write(contentsOf: Data([1]))
+        try handle.close()
+
+        let complete = MediaItem(url: source,
+            torrentFile: TorrentFile(index: 0, name: "complete.mp4", path: "complete.mp4", length: length),
+            groupKind: .torrent)
+        let partial = MediaItem(url: source,
+            torrentFile: TorrentFile(index: 1, name: "partial.mp4", path: "partial.mp4", length: length),
+            groupKind: .torrent)
+        let player = PlayerModel(defaults: fixture.defaults,
+            magnetStream: MagnetStream(downloadDirectory: downloads))
+        player.queue = [complete, partial]
+        await player.refreshTorrentProgress()
+
+        #expect(player.torrentDownloadState(for: complete) == .local)
+        #expect(player.torrentDownloadState(for: partial) == .downloading(percent: 0))
+        // Disk usage is an estimate; playback still waits for verification.
+        #expect(player.verifiedDownloadURL(for: complete) == nil)
     }
 
     @Test func torrentFileCannotEscapeDownloadDirectory() {

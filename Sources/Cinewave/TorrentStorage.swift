@@ -35,6 +35,54 @@ enum TorrentStorage {
         return url
     }
 
+    static func progressURL(forInfoHash hash: String, under root: URL) -> URL {
+        root.appendingPathComponent(".metadata", isDirectory: true)
+            .appendingPathComponent("\(hash).progress.json")
+    }
+
+    /// Progress of each queued torrent file: what the helper last saved, or for
+    /// files it has not reported (downloads older than progress files) what is
+    /// on disk. Files missing from disk report nothing. Nonisolated, so hashing
+    /// `.torrent` files and the reads stay off the main actor.
+    static func loadProgress(
+        for sources: [URL: [TorrentFile]],
+        knownHashes: [URL: String],
+        under root: URL
+    ) async -> (hashes: [URL: String], progress: [String: TorrentProgress]) {
+        var hashes: [URL: String] = [:]
+        var progress: [String: TorrentProgress] = [:]
+        for (source, torrentFiles) in sources {
+            guard let hash = knownHashes[source] ?? infoHash(for: source) else { continue }
+            hashes[source] = hash
+            let saved = (try? Data(contentsOf: progressURL(forInfoHash: hash, under: root)))
+                .flatMap { try? JSONDecoder().decode(TorrentProgress.self, from: $0) }?.files ?? [:]
+            let directory = root.appendingPathComponent(hash, isDirectory: true)
+            var files: [String: TorrentProgress.File] = [:]
+            for file in torrentFiles {
+                guard let url = downloadedFileURL(for: file, in: directory),
+                      let allocated = allocatedSize(of: url) else { continue }
+                let key = String(file.index)
+                files[key] = saved[key] ?? TorrentProgress.File(
+                    downloaded: min(allocated, file.length), done: allocated >= file.length,
+                    measuredOnDisk: true
+                )
+            }
+            progress[hash] = TorrentProgress(files: files)
+        }
+        return (hashes, progress)
+    }
+
+    /// WebTorrent writes only verified pieces into sparse files, so the blocks a
+    /// download occupies track how much of it is saved. An estimate: APFS
+    /// zero-fills gaps under 16 MB when a write lands past the end of a file,
+    /// so a few out-of-order pieces can be counted early. The helper's own
+    /// progress replaces it the next time the torrent runs.
+    private static func allocatedSize(of url: URL) -> Int64? {
+        var info = stat()
+        guard stat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
+        return Int64(info.st_blocks) * 512
+    }
+
     private static func infoHash(inMagnetText text: String) -> String? {
         guard let start = text.range(of: "magnet:?", options: .caseInsensitive) else { return nil }
         let magnet = text[start.lowerBound...]

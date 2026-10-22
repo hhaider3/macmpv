@@ -35,7 +35,7 @@ test('shutdown waits for both torrent storage and HTTP closure', async () => {
     const callbacks = {}
     const exits = []
     let connectionsClosed = false
-    const finishSource = embeddedRuntime.slice(embeddedRuntime.indexOf('function finish('), embeddedRuntime.indexOf('function fail('))
+    const finishSource = embeddedRuntime.slice(embeddedRuntime.indexOf('let clientClosed'), embeddedRuntime.indexOf('function fail('))
     const finish = new Function('client', 'httpServer', 'process', `let stopping = false; ${finishSource}; return finish`)(
       { destroy: callback => { callbacks.client = callback } },
       { close: callback => { callbacks.server = callback }, closeAllConnections: () => { connectionsClosed = true } },
@@ -143,6 +143,7 @@ async function fixture(t, size = 512 * 1024) {
   }
   await fs.symlink(path.dirname(path.dirname(modulePath)), path.join(root, 'node_modules'))
   const eventsPath = path.join(root, 'selections.jsonl')
+  const closedPath = path.join(root, 'client-closed')
   const helperDirectory = path.join(root, 'helper')
   await fs.mkdir(helperDirectory)
   await fs.symlink(path.join(path.dirname(modulePath), 'node_modules'), path.join(helperDirectory, 'node_modules'))
@@ -164,6 +165,10 @@ async function fixture(t, size = 512 * 1024) {
           }
         });
         return torrent;
+      }
+      destroy(callback) {
+        appendFileSync(${JSON.stringify(closedPath)}, '');
+        return super.destroy(callback);
       }
     }
   `)
@@ -205,7 +210,10 @@ async function fixture(t, size = 512 * 1024) {
   async function selections() {
     try { return (await fs.readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) } catch { return [] }
   }
-  return { root, parsed, payloads, saved, select, ready, launch, stop, selections, metadata,
+  async function clientClosed() {
+    try { await fs.access(closedPath); return true } catch { return false }
+  }
+  return { root, parsed, payloads, saved, select, ready, launch, stop, selections, metadata, clientClosed,
     stopServing: () => { serveData = false }, requests: () => requests }
 }
 
@@ -234,6 +242,54 @@ test('active file downloads first; other videos follow; saved torrent reopens of
   const response = await f.ready('reopened')
   const data = Buffer.from(await (await fetch(response.url)).arrayBuffer())
   assert.ok(data.equals(f.payloads.get('episode10.mp4')), 'Saved file could not play without peers or metadata network access')
+})
+
+test('leaves the swarm once every video is saved and keeps streaming from disk', { timeout: 30000 }, async t => {
+  const f = await fixture(t, 2 * 1024 * 1024)
+  await f.select('episode2.mp4', 'first')
+  const child = f.launch()
+  const first = await f.ready('first')
+  // Started while the file is still downloading, so it hands over from the
+  // torrent to disk partway through.
+  const body = Buffer.from(await (await fetch(first.url)).arrayBuffer())
+  assert.ok(body.equals(f.payloads.get('episode2.mp4')), 'Stream changed across the switch to disk')
+  await until(() => f.clientClosed(), 'Client kept sharing after every video finished')
+  assert.equal(child.exitCode, null, 'Helper exited instead of continuing to stream')
+  const requests = f.requests().length
+  for (const [name, id] of [['episode10.mp4', 'second'], ['episode2.mp4', 'third']]) {
+    await f.select(name, id)
+    const response = await f.ready(id)
+    const expected = f.payloads.get(name)
+    const full = Buffer.from(await (await fetch(response.url)).arrayBuffer())
+    assert.ok(full.equals(expected), `${name} did not stream from disk`)
+    const ranged = await fetch(response.url, { headers: { Range: 'bytes=100-199' } })
+    assert.equal(ranged.status, 206)
+    assert.ok(Buffer.from(await ranged.arrayBuffer()).equals(expected.subarray(100, 200)))
+  }
+  const extra = f.parsed.files.findIndex(file => path.basename(file.path) === 'readme.txt')
+  const base = new URL(first.url)
+  assert.equal((await fetch(new URL(`/${f.parsed.infoHash}/${extra}`, base))).status, 404, 'Served a file outside the queue')
+  assert.equal(f.requests().length, requests, 'Downloaded again after leaving the swarm')
+  const progress = await readJSON(path.join(f.saved, '.metadata', `${f.parsed.infoHash}.progress.json`))
+  const media = f.parsed.files.flatMap((file, index) => file.path.endsWith('.mp4') ? [index] : [])
+  assert.deepEqual(Object.keys(progress.files).map(Number).sort(), media.sort(), 'Progress must list media files only')
+  for (const index of media) {
+    assert.deepEqual(progress.files[index], { downloaded: f.parsed.files[index].length, done: true })
+  }
+})
+
+test('saves download progress for the sidebar while downloading', { timeout: 30000 }, async t => {
+  const f = await fixture(t, 2 * 1024 * 1024)
+  await f.select('episode2.mp4', 'first')
+  f.launch()
+  await f.ready('first')
+  const progressPath = path.join(f.saved, '.metadata', `${f.parsed.infoHash}.progress.json`)
+  const index = f.parsed.files.findIndex(file => path.basename(file.path) === 'episode2.mp4')
+  const partial = await until(async () => {
+    const entry = (await readJSON(progressPath))?.files?.[index]
+    return entry && entry.downloaded > 0 && !entry.done ? entry : false
+  }, 'No partial progress was saved')
+  assert.ok(partial.downloaded < f.parsed.files[index].length)
 })
 
 test('switching videos reprioritizes the same running torrent client', { timeout: 30000 }, async t => {

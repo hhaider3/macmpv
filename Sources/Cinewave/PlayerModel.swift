@@ -65,6 +65,8 @@ final class PlayerModel {
     var introEndMarker: Double?
     var outroStartMarker: Double?
     let seekPreview = SeekPreviewModel()
+    /// Progress of queued torrent files by info hash, refreshed every second.
+    var torrentProgress: [String: TorrentProgress] = [:]
 
     struct SubtitleSettings: Codable, Equatable {
         var scale: Double = 1
@@ -105,6 +107,7 @@ final class PlayerModel {
     /// Height of the bottom controls (including their bottom padding), measured
     /// by the view that renders them; 0 while the overlay is hidden.
     @ObservationIgnored private var controlsBottomInset: Double = 0
+    @ObservationIgnored var torrentInfoHashes: [URL: String] = [:]
 
     private let previewSeekInterval: TimeInterval = 0.18
     static let positionsDefaultsKey = "playback.positions.v2"
@@ -174,6 +177,26 @@ final class PlayerModel {
 
         for item in queue where item.metadata == nil && !MediaSupport.isTorrentSource(item.url) {
             inspect(item)
+        }
+
+        Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshTorrentProgress()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    func refreshTorrentProgress() async {
+        let sources = Dictionary(grouping: queue.filter { $0.torrentFile != nil }, by: \.url)
+            .mapValues { $0.compactMap(\.torrentFile) }
+        let loaded = await TorrentStorage.loadProgress(
+            for: sources, knownHashes: torrentInfoHashes, under: magnetStream.downloadDirectory
+        )
+        torrentInfoHashes = loaded.hashes
+        if loaded.progress != torrentProgress {
+            torrentProgress = loaded.progress
         }
     }
 
@@ -721,15 +744,32 @@ final class PlayerModel {
                 return
             }
 
+            let torrentItems = queue.filter { $0.url == currentItem.url }
+            let allowedFileIndexes = Set(torrentItems.compactMap { $0.torrentFile?.index })
+            if let downloadURL = verifiedDownloadURL(for: currentItem) {
+                // Starting the helper means re-verifying every saved piece, which
+                // takes seconds per gigabyte. Play from disk now; run the helper
+                // only to download the torrent's other queued files.
+                if torrentItems.allSatisfy({ verifiedDownloadURL(for: $0) != nil }) {
+                    magnetStream.stop()
+                } else {
+                    magnetStream.start(
+                        from: currentItem.url,
+                        selectedFileIndex: currentItem.torrentFile?.index,
+                        allowedFileIndexes: allowedFileIndexes
+                    ) { _ in }
+                }
+                loadResolvedSource(downloadURL)
+                return
+            }
+
             let itemID = currentItem.id
             engine.stop()
             isPlaying = false
             magnetStream.start(
                 from: currentItem.url,
                 selectedFileIndex: currentItem.torrentFile?.index,
-                allowedFileIndexes: Set(queue.compactMap { item in
-                    item.url == currentItem.url ? item.torrentFile?.index : nil
-                })
+                allowedFileIndexes: allowedFileIndexes
             ) { [weak self] result in
                 guard let self, self.currentID == itemID else { return }
                 switch result {

@@ -26,6 +26,7 @@ struct QueueSidebar: View {
                                     },
                                     play: player.play,
                                     finderURL: player.finderURL,
+                                    downloadState: player.torrentDownloadState,
                                     moveItem: { draggedID, destinationID in
                                         withAnimation(.easeOut(duration: 0.18)) {
                                             player.moveQueueItem(id: draggedID, before: destinationID)
@@ -47,7 +48,11 @@ struct QueueSidebar: View {
             }
 
             if let item = player.currentItem {
-                CurrentMediaDetails(item: item, finderURL: player.finderURL)
+                CurrentMediaDetails(
+                    item: item,
+                    downloadState: player.torrentDownloadState(for: item),
+                    finderURL: player.finderURL
+                )
                     .padding(10)
             }
         }
@@ -142,6 +147,7 @@ struct QueueSidebar: View {
         QueueRow(
             item: item,
             isCurrent: item.id == player.currentID,
+            downloadState: player.torrentDownloadState(for: item),
             moveBefore: { draggedID in
                 withAnimation(.easeOut(duration: 0.18)) {
                     player.moveQueueItem(id: draggedID, before: item.id)
@@ -184,6 +190,7 @@ private struct QueueGroupSection: View {
     let toggle: () -> Void
     let play: (MediaItem) -> Void
     let finderURL: (MediaItem) -> URL?
+    let downloadState: (MediaItem) -> TorrentDownloadState?
     let moveItem: (UUID, UUID) -> Void
     let removeItem: (MediaItem) -> Void
     let removeGroup: () -> Void
@@ -237,6 +244,7 @@ private struct QueueGroupSection: View {
                     QueueRow(
                         item: item,
                         isCurrent: item.id == currentID,
+                        downloadState: downloadState(item),
                         moveBefore: { draggedID in
                             moveItem(draggedID, item.id)
                         }
@@ -295,6 +303,7 @@ struct ShowInFinderButton: View {
 private struct QueueRow: View {
     let item: MediaItem
     let isCurrent: Bool
+    let downloadState: TorrentDownloadState?
     let moveBefore: (UUID) -> Void
     let action: () -> Void
 
@@ -333,6 +342,12 @@ private struct QueueRow: View {
                         if let torrentFile = item.torrentFile {
                             Text("•")
                             Text(torrentFile.sizeLabel)
+                            if let downloadState {
+                                Text("•")
+                                Text(downloadState.label)
+                                    .monospacedDigit()
+                                    .foregroundStyle(downloadState == .local ? Color.green.opacity(0.85) : Color.secondary)
+                            }
                         } else if let duration = item.metadata?.duration {
                             Text("•")
                             Text(duration.playbackTime)
@@ -369,6 +384,7 @@ private struct QueueRow: View {
 
 private struct CurrentMediaDetails: View {
     let item: MediaItem
+    let downloadState: TorrentDownloadState?
     let finderURL: (MediaItem) -> URL?
 
     var body: some View {
@@ -403,7 +419,7 @@ private struct CurrentMediaDetails: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                 } else {
-                    Text("Streaming from BitTorrent")
+                    Text(torrentSourceLabel)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -431,6 +447,14 @@ private struct CurrentMediaDetails: View {
             if let url = finderURL(item) {
                 ShowInFinderButton(url: url)
             }
+        }
+    }
+
+    private var torrentSourceLabel: String {
+        switch downloadState {
+        case .local: "Playing from local storage"
+        case .downloading(let percent): "Streaming from BitTorrent • \(percent)% downloaded"
+        case nil: "Streaming from BitTorrent"
         }
     }
 }
