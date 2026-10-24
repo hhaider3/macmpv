@@ -95,7 +95,9 @@ struct ProcessTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("macmpv-tests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
         let helper = try executable(in: directory, script: "exec /bin/sleep 30\n")
-        let probe = MediaProbe(executable: helper, timeout: .milliseconds(80), maximumConcurrentProbes: 2)
+        let probe = MediaProbe(
+            executable: helper, timeout: .milliseconds(80), exitGrace: .milliseconds(500), maximumConcurrentProbes: 2
+        )
         let start = ContinuousClock.now
         await withTaskGroup(of: MediaMetadata?.self) { group in
             for _ in 0..<8 {
@@ -104,5 +106,20 @@ struct ProcessTests {
             for await result in group { #expect(result == nil) }
         }
         #expect(ContinuousClock.now - start < .seconds(8))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func probeIgnoringTerminationIsKilledAfterGrace() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("macmpv-tests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // The ignored SIGTERM survives exec, and the child keeps the output pipes open.
+        let helper = try executable(in: directory, script: "trap '' TERM\nexec /bin/sleep 30\n")
+        // A freshly written script can take a while to start; the timeout leaves
+        // time for the trap to be installed before SIGTERM arrives.
+        let probe = MediaProbe(executable: helper, timeout: .seconds(1), exitGrace: .milliseconds(300))
+        let start = ContinuousClock.now
+        #expect(await probe.inspect(URL(fileURLWithPath: "/tmp/unused.mp4")) == nil)
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed >= .milliseconds(1_300), "SIGTERM ended the probe; the kill path was not exercised")
+        #expect(elapsed < .seconds(5))
     }
 }

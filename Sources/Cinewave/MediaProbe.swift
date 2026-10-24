@@ -1,16 +1,24 @@
 import Darwin
 import Foundation
+import Synchronization
 
 actor MediaProbe {
     private let executable: URL?
     private let timeout: Duration
+    private let exitGrace: Duration
     private let maximumConcurrentProbes: Int
     private var activeProbes = 0
     private var waitingProbes: [CheckedContinuation<Void, Never>] = []
 
-    init(executable: URL? = nil, timeout: Duration = .seconds(8), maximumConcurrentProbes: Int = 2) {
+    init(
+        executable: URL? = nil,
+        timeout: Duration = .seconds(8),
+        exitGrace: Duration = .seconds(2),
+        maximumConcurrentProbes: Int = 2
+    ) {
         self.executable = executable ?? Self.ffprobeExecutable
         self.timeout = timeout
+        self.exitGrace = exitGrace
         self.maximumConcurrentProbes = max(1, maximumConcurrentProbes)
     }
 
@@ -86,6 +94,8 @@ actor MediaProbe {
         process.standardError = errorPipe
         // Ensure GUI apps don't inherit a stripped environment.
         process.qualityOfService = .userInitiated
+        let exit = ProcessExit()
+        process.terminationHandler = { exit.finish($0.terminationStatus) }
 
         do {
             try process.run()
@@ -94,21 +104,26 @@ actor MediaProbe {
         }
 
         // Race the probe against a timeout, draining both pipes concurrently.
-        // On timeout we terminate gracefully, then force-kill after a short grace.
         return await withTaskGroup(of: MediaMetadata?.self) { group in
             group.addTask {
-                await self.collectResult(process: process, outputPipe: outputPipe, errorPipe: errorPipe)
+                await self.collectResult(exit: exit, outputPipe: outputPipe, errorPipe: errorPipe)
             }
             group.addTask {
                 // 8s for local files, enough for remote / HLS without hanging indefinitely.
                 try? await Task.sleep(for: self.timeout)
                 if process.isRunning {
                     process.terminate() // SIGTERM
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s grace
-                    if process.isRunning {
-                        // SIGKILL as last resort; Process has no direct kill, use Darwin.
+                    try? await Task.sleep(for: self.exitGrace)
+                    // A child ignoring SIGTERM keeps the pipes open; kill it only
+                    // while it has neither exited nor been reaped by Foundation.
+                    if !exit.isFinished, process.isRunning {
                         Darwin.kill(process.processIdentifier, SIGKILL)
                     }
+                    // Foundation occasionally loses a terminated child's exit: the
+                    // child is reaped but no termination handler runs. The group
+                    // waits for both tasks and the probe holds a concurrency slot
+                    // until it returns, so never wait past the grace period.
+                    exit.finish(-1)
                 }
                 return nil
             }
@@ -192,15 +207,13 @@ actor MediaProbe {
 
     // MARK: - Collection helpers
 
-    private func collectResult(process: Process, outputPipe: Pipe, errorPipe: Pipe) async -> MediaMetadata? {
+    private func collectResult(exit: ProcessExit, outputPipe: Pipe, errorPipe: Pipe) async -> MediaMetadata? {
         // FileHandle reads block. Keep them on GCD threads, with at most two
         // probes active, so neither pipe nor Swift's cooperative executor stalls.
         async let stdoutDataTask = Self.drain(outputPipe.fileHandleForReading)
         async let stderrDrainTask = Self.drain(errorPipe.fileHandleForReading)
 
-        async let exitStatusTask: Int32 = {
-            await self.waitForExit(process)
-        }()
+        async let exitStatusTask = exit.status()
 
         let (stdoutData, _, exitStatus) = await (stdoutDataTask, stderrDrainTask, exitStatusTask)
 
@@ -219,17 +232,6 @@ actor MediaProbe {
             DispatchQueue.global(qos: .utility).async {
                 defer { try? handle.close() }
                 continuation.resume(returning: (try? handle.readToEnd()) ?? Data())
-            }
-        }
-    }
-
-    private func waitForExit(_ process: Process) async -> Int32 {
-        return await withCheckedContinuation { continuation in
-            // waitUntilExit has one completion path, avoiding the race between an
-            // isRunning check and a concurrently invoked termination handler.
-            DispatchQueue.global(qos: .utility).async {
-                process.waitUntilExit()
-                continuation.resume(returning: process.terminationStatus)
             }
         }
     }
@@ -263,5 +265,41 @@ actor MediaProbe {
             return numerator / denominator
         }
         return Double(value)
+    }
+}
+
+/// A probe's exit status, delivered once by whichever comes first: the
+/// process's termination handler or the timeout's deadline. The handler can
+/// run before anyone waits, so the first status is kept for a later waiter.
+private final class ProcessExit: Sendable {
+    private struct State {
+        var status: Int32?
+        var waiter: CheckedContinuation<Int32, Never>?
+    }
+
+    private let state = Mutex(State())
+
+    var isFinished: Bool {
+        state.withLock { $0.status != nil }
+    }
+
+    func finish(_ status: Int32) {
+        let waiter = state.withLock { state -> CheckedContinuation<Int32, Never>? in
+            guard state.status == nil else { return nil }
+            state.status = status
+            defer { state.waiter = nil }
+            return state.waiter
+        }
+        waiter?.resume(returning: status)
+    }
+
+    func status() async -> Int32 {
+        await withCheckedContinuation { continuation in
+            let status = state.withLock { state -> Int32? in
+                if state.status == nil { state.waiter = continuation }
+                return state.status
+            }
+            if let status { continuation.resume(returning: status) }
+        }
     }
 }

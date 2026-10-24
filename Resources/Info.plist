@@ -24,6 +24,7 @@
 				<string>wav</string>
 				<string>m4a</string>
 				<string>ogg</string>
+				<string>m3u</string>
 				<string>m3u8</string>
 				<string>magnet</string>
 				<string>torrent</string>
