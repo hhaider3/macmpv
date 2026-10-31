@@ -130,23 +130,6 @@ code {
 .nav-links a { color: var(--text-dim); }
 .nav-links a:hover { color: var(--text); text-decoration: none; }
 
-.github-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 7px 14px;
-    border: 1px solid var(--border-strong);
-    border-radius: 999px;
-    background: var(--bg-raise);
-    color: var(--text) !important;
-    transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.github-link:hover {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.28);
-}
-
 /* ---- Layout ---- */
 
 main {
@@ -714,7 +697,7 @@ main {
 /* ---- Small screens ---- */
 
 @media (max-width: 620px) {
-    .nav-links a:not(.github-link) { display: none; }
+    .nav-links { display: none; }
     .download-meta { flex-direction: column; }
     .showcase {
         grid-template-columns: 1fr;
@@ -839,7 +822,7 @@ main {
     .feature-icon { margin-bottom: 6px; }
     .download-meta > .button { width: 100%; justify-content: center; flex-direction: column; gap: 3px; text-align: center; }
     p code { overflow-wrap: anywhere; }
-    .brand, .github-link { min-height: 44px; }
+    .brand { min-height: 44px; }
     .callout { padding: 18px; }
     .footer { text-align: left; margin-top: 64px; }
 }
