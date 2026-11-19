@@ -161,6 +161,12 @@ enum MediaSupport {
         return extensions.contains(url.pathExtension.lowercased())
     }
 
+    static let subtitleExtensions: Set<String> = ["ass", "srt", "ssa", "sub", "vtt"]
+
+    static func isSubtitle(_ url: URL) -> Bool {
+        url.isFileURL && subtitleExtensions.contains(url.pathExtension.lowercased())
+    }
+
     static func isTorrentSource(_ url: URL) -> Bool {
         (url.isFileURL && ["magnet", "torrent"].contains(url.pathExtension.lowercased())) ||
             url.scheme?.lowercased() == "magnet"

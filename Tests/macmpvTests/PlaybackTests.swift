@@ -66,37 +66,93 @@ struct PlaybackTests {
         #expect(reloaded.rememberedPositions["/tmp/\(limit + 9).mkv"] != nil)
     }
 
-    @Test @MainActor func externalSubtitleIsRememberedPerVideoUntilAnotherTrackIsChosen() throws {
+    @Test @MainActor func trackChoicesAreRememberedPerVideoAcrossLaunches() throws {
         let suite = "macmpv-tests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let player = PlayerModel(defaults: defaults)
         let movie = MediaItem(url: URL(fileURLWithPath: "/tmp/movie.mkv"))
-        let other = MediaItem(url: URL(fileURLWithPath: "/tmp/other.mkv"))
-        player.queue = [movie, other]
+        let series = MediaItem(url: URL(fileURLWithPath: "/tmp/series.mkv"))
+        let silent = MediaItem(url: URL(fileURLWithPath: "/tmp/silent.mkv"))
+        player.queue = [movie, series, silent]
         let external = MPVEngine.MediaTrack(
             id: "3", kind: .subtitle, title: nil, language: nil, codec: "subrip",
             isSelected: false, externalFilename: "/tmp/subs/../subs/movie.en.srt"
         )
         let embedded = MPVEngine.MediaTrack(
-            id: "1", kind: .subtitle, title: "English", language: "eng", codec: "ass", isSelected: true
+            id: "2", kind: .subtitle, title: "English", language: "eng", codec: "ass", isSelected: false
+        )
+        let japanese = MPVEngine.MediaTrack(
+            id: "2", kind: .audio, title: nil, language: "jpn", codec: "aac", isSelected: false
         )
 
         player.currentID = movie.id
         player.selectSubtitleTrack(external)
-        player.currentID = other.id
+        player.currentID = series.id
         player.selectSubtitleTrack(embedded)
+        player.selectAudioTrack(japanese)
+        player.currentID = silent.id
+        player.selectSubtitleTrack(nil)
 
-        // Survives an app restart, keyed to the video it was set on.
-        var reloaded = PlayerModel(defaults: defaults)
-        #expect(reloaded.rememberedSubtitles["/tmp/movie.mkv"]?.path == "/tmp/subs/movie.en.srt")
-        #expect(reloaded.rememberedSubtitles["/tmp/other.mkv"] == nil)
+        let reloaded = PlayerModel(defaults: defaults)
+        let tracks = reloaded.rememberedTracks
+        #expect(tracks["/tmp/movie.mkv"]?.subtitle == .external(path: "/tmp/subs/movie.en.srt"))
+        #expect(tracks["/tmp/series.mkv"]?.subtitle == .embedded(id: "2"))
+        #expect(tracks["/tmp/series.mkv"]?.audioID == "2")
+        #expect(tracks["/tmp/silent.mkv"]?.subtitle == .off)
+        #expect(tracks["/tmp/silent.mkv"]?.audioID == nil)
+    }
 
+    @Test @MainActor func subtitleDelayBelongsToEachVideo() throws {
+        let suite = "macmpv-tests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // An app-wide delay saved by an older version is not applied to every video.
+        var legacySettings = PlayerModel.SubtitleSettings()
+        legacySettings.delay = 2
+        defaults.set(try JSONEncoder().encode(legacySettings), forKey: PlayerModel.subtitleSettingsKey)
+
+        let player = PlayerModel(defaults: defaults)
+        #expect(player.subtitleSettings.delay == 0)
+        let movie = MediaItem(url: URL(fileURLWithPath: "/tmp/movie.mkv"))
+        let other = MediaItem(url: URL(fileURLWithPath: "/tmp/other.mkv"))
+        player.queue = [movie, other]
+
+        player.play(movie)
+        player.subtitleSettings.delay = 1.5
+        player.applySubtitleSettings()
+        player.play(other)
+        #expect(player.subtitleSettings.delay == 0)
+        player.play(movie)
+        #expect(player.subtitleSettings.delay == 1.5)
+
+        let reloaded = PlayerModel(defaults: defaults)
+        #expect(reloaded.rememberedTracks["/tmp/movie.mkv"]?.subtitleDelay == 1.5)
+        #expect(reloaded.rememberedTracks["/tmp/other.mkv"] == nil)
+        let saved = try #require(reloaded.load(PlayerModel.SubtitleSettings.self, key: PlayerModel.subtitleSettingsKey))
+        #expect(saved.delay == 0)
+
+        // Resetting to zero forgets the video's delay.
         reloaded.queue = [movie]
-        reloaded.currentID = movie.id
-        reloaded.selectSubtitleTrack(nil)
-        reloaded = PlayerModel(defaults: defaults)
-        #expect(reloaded.rememberedSubtitles.isEmpty)
+        reloaded.play(movie)
+        reloaded.subtitleSettings.delay = 0
+        reloaded.applySubtitleSettings()
+        #expect(reloaded.rememberedTracks["/tmp/movie.mkv"] == nil)
+    }
+
+    @Test @MainActor func earlierSubtitleFileStoreMigratesOnce() throws {
+        let suite = "macmpv-tests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = ["/tmp/movie.mkv": PlayerModel.LegacyRememberedSubtitle(
+            path: "/tmp/movie.srt", updatedAt: Date(timeIntervalSince1970: 1_000)
+        )]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: PlayerModel.legacySubtitleFilesDefaultsKey)
+
+        _ = PlayerModel(defaults: defaults)
+        #expect(defaults.object(forKey: PlayerModel.legacySubtitleFilesDefaultsKey) == nil)
+        let reloaded = PlayerModel(defaults: defaults)
+        #expect(reloaded.rememberedTracks["/tmp/movie.mkv"]?.subtitle == .external(path: "/tmp/movie.srt"))
     }
 
     @Test func completionIsConsumedOnceAndRearmedAfterSeek() {

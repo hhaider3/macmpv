@@ -31,8 +31,17 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .dropDestination(for: URL.self) { urls, _ in
             let playable = urls.filter(MediaSupport.isPlayable)
-            guard !playable.isEmpty else { return false }
-            player.enqueue(playable, playFirst: player.currentID == nil)
+            // Subtitle files attach to the playing video. With nothing playing
+            // they are ignored; mpv still auto-loads ones named like a video
+            // in the same folder.
+            let subtitles = player.hasMedia && playable.isEmpty ? urls.filter(MediaSupport.isSubtitle) : []
+            guard !playable.isEmpty || !subtitles.isEmpty else { return false }
+            if !playable.isEmpty {
+                player.enqueue(playable, playFirst: player.currentID == nil)
+            }
+            for subtitle in subtitles {
+                player.addSubtitleFile(subtitle)
+            }
             return true
         } isTargeted: { targeted in
             withAnimation(.easeOut(duration: 0.15)) {

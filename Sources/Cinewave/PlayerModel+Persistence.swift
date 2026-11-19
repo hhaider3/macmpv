@@ -13,9 +13,29 @@ extension PlayerModel {
         var updatedAt: Date
     }
 
-    /// An external subtitle file the user attached to a video, restored each
-    /// time that video loads.
-    struct RememberedSubtitle: Codable, Equatable {
+    /// The subtitle a video should open with.
+    enum SubtitleChoice: Codable, Equatable {
+        case off
+        /// A track inside the video, by mpv track ID.
+        case embedded(id: String)
+        /// A subtitle file on disk, added by the user or auto-loaded beside the video.
+        case external(path: String)
+    }
+
+    /// Per-video track choices, restored each time that video loads.
+    struct RememberedTracks: Codable, Equatable {
+        var audioID: String?
+        var subtitle: SubtitleChoice?
+        var subtitleDelay: Double?
+        var updatedAt: Date
+
+        var isEmpty: Bool {
+            audioID == nil && subtitle == nil && subtitleDelay == nil
+        }
+    }
+
+    /// The 1.9 development store held only external subtitle paths.
+    struct LegacyRememberedSubtitle: Codable {
         var path: String
         var updatedAt: Date
     }
@@ -67,57 +87,101 @@ extension PlayerModel {
         persistMarkers()
     }
 
-    func rememberSubtitle(_ url: URL) {
+    /// Applies a change to the current video's remembered tracks and saves it.
+    func updateRememberedTracks(_ change: (inout RememberedTracks) -> Void) {
         guard let currentItem else { return }
-        rememberedSubtitles[persistenceKey(for: currentItem)] = RememberedSubtitle(
-            path: url.standardizedFileURL.path,
-            updatedAt: Date()
-        )
-        persistSubtitles()
-    }
-
-    func forgetSubtitle() {
-        guard let currentItem,
-              rememberedSubtitles.removeValue(forKey: persistenceKey(for: currentItem)) != nil
+        let key = persistenceKey(for: currentItem)
+        var tracks = rememberedTracks[key] ?? RememberedTracks(updatedAt: Date())
+        let before = tracks
+        change(&tracks)
+        guard tracks.audioID != before.audioID
+            || tracks.subtitle != before.subtitle
+            || tracks.subtitleDelay != before.subtitleDelay
         else { return }
-        persistSubtitles()
+        tracks.updatedAt = Date()
+        rememberedTracks[key] = tracks.isEmpty ? nil : tracks
+        persistTracks()
     }
 
-    /// Re-attaches the current video's remembered subtitle file after it loads.
-    /// mpv may already have auto-loaded the same file (sub-auto), so select that
-    /// track instead of adding a duplicate. A missing file is kept in the store,
-    /// since it may live on a drive that is not mounted right now. Returns true
-    /// when a subtitle file was added, so the caller can refresh tracks again.
-    @discardableResult
-    func restoreRememberedSubtitle() -> Bool {
-        guard let currentItem,
-              let saved = rememberedSubtitles[persistenceKey(for: currentItem)],
-              FileManager.default.fileExists(atPath: saved.path)
-        else { return false }
-        let alreadyLoaded = engine.availableTracks(kind: .subtitle).first { track in
-            track.externalFilename.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == saved.path
+    func rememberSubtitleChoice(_ track: MPVEngine.MediaTrack?) {
+        let choice: SubtitleChoice
+        if let track {
+            choice = track.externalFilename.map {
+                .external(path: URL(fileURLWithPath: $0).standardizedFileURL.path)
+            } ?? .embedded(id: track.id)
+        } else {
+            choice = .off
         }
-        if let alreadyLoaded {
-            engine.selectTrack(alreadyLoaded)
+        updateRememberedTracks { $0.subtitle = choice }
+    }
+
+    /// Re-applies the current video's remembered audio and subtitle choices after
+    /// it loads. Choices that no longer match a track are skipped. mpv may have
+    /// auto-loaded a remembered file already (sub-auto), so that track is
+    /// selected instead of adding a duplicate. A missing file is kept, since it
+    /// may live on a drive that is not mounted right now. Returns true when a
+    /// subtitle file was added, so the caller can refresh tracks again.
+    @discardableResult
+    func restoreRememberedTracks() -> Bool {
+        guard let currentItem, let saved = rememberedTracks[persistenceKey(for: currentItem)] else {
             return false
         }
-        return engine.addExternalSubtitle(URL(fileURLWithPath: saved.path))
+        if let audioID = saved.audioID,
+           let track = engine.availableTracks(kind: .audio).first(where: { $0.id == audioID }) {
+            engine.selectTrack(track)
+        }
+        let subtitles = engine.availableTracks(kind: .subtitle)
+        switch saved.subtitle {
+        case nil:
+            return false
+        case .off:
+            engine.selectTrack(nil)
+            return false
+        case .embedded(let id):
+            if let track = subtitles.first(where: { $0.id == id && $0.externalFilename == nil }) {
+                engine.selectTrack(track)
+            }
+            return false
+        case .external(let path):
+            guard FileManager.default.fileExists(atPath: path) else { return false }
+            let alreadyLoaded = subtitles.first { track in
+                track.externalFilename.map { URL(fileURLWithPath: $0).standardizedFileURL.path } == path
+            }
+            if let alreadyLoaded {
+                engine.selectTrack(alreadyLoaded)
+                return false
+            }
+            return engine.addExternalSubtitle(URL(fileURLWithPath: path))
+        }
     }
 
-    /// Capped to the most recently attached entries, like resume positions.
-    func persistSubtitles() {
-        let overflow = rememberedSubtitles.count - Self.maximumRememberedSubtitles
+    /// Reads the tracks store, migrating the earlier subtitle-files store once.
+    func loadRememberedTracks() -> [String: RememberedTracks] {
+        if let tracks = load([String: RememberedTracks].self, key: Self.tracksDefaultsKey) {
+            return tracks
+        }
+        guard let legacy = load([String: LegacyRememberedSubtitle].self, key: Self.legacySubtitleFilesDefaultsKey) else {
+            return [:]
+        }
+        return legacy.mapValues {
+            RememberedTracks(subtitle: .external(path: $0.path), updatedAt: $0.updatedAt)
+        }
+    }
+
+    /// Capped to the most recently changed entries, like resume positions.
+    func persistTracks() {
+        let overflow = rememberedTracks.count - Self.maximumRememberedTracks
         if overflow > 0 {
-            let oldest = rememberedSubtitles
+            let oldest = rememberedTracks
                 .sorted { $0.value.updatedAt < $1.value.updatedAt }
                 .prefix(overflow)
                 .map(\.key)
             for key in oldest {
-                rememberedSubtitles.removeValue(forKey: key)
+                rememberedTracks.removeValue(forKey: key)
             }
         }
-        if let data = try? JSONEncoder().encode(rememberedSubtitles) {
-            defaults.set(data, forKey: Self.subtitleFilesDefaultsKey)
+        if let data = try? JSONEncoder().encode(rememberedTracks) {
+            defaults.set(data, forKey: Self.tracksDefaultsKey)
         }
     }
 

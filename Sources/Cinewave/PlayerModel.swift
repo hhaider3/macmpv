@@ -99,7 +99,7 @@ final class PlayerModel {
     @ObservationIgnored private var pendingResumePosition: Double?
     @ObservationIgnored var rememberedPositions: [String: RememberedPosition] = [:]
     @ObservationIgnored var rememberedMarkers: [String: PlaybackMarkers] = [:]
-    @ObservationIgnored var rememberedSubtitles: [String: RememberedSubtitle] = [:]
+    @ObservationIgnored var rememberedTracks: [String: RememberedTracks] = [:]
     /// Position at the last progress write; snapshots arriving between 1-second
     /// deltas are ignored so playback persistence costs ~one write per second.
     @ObservationIgnored var lastPersistedPosition: Double?
@@ -116,8 +116,9 @@ final class PlayerModel {
     static let maximumRememberedPositions = 500
     static let markersDefaultsKey = "playback.markers.v1"
     static let subtitleSettingsKey = "subtitles.settings.v1"
-    static let subtitleFilesDefaultsKey = "subtitles.files.v1"
-    static let maximumRememberedSubtitles = 500
+    static let tracksDefaultsKey = "playback.tracks.v1"
+    static let legacySubtitleFilesDefaultsKey = "subtitles.files.v1"
+    static let maximumRememberedTracks = 500
     static let queueDefaultsKey = "player.queue.v1"
 
     var currentItem: MediaItem? {
@@ -170,7 +171,13 @@ final class PlayerModel {
         }
         rememberedMarkers = load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
         subtitleSettings = load(SubtitleSettings.self, key: Self.subtitleSettingsKey) ?? SubtitleSettings()
-        rememberedSubtitles = load([String: RememberedSubtitle].self, key: Self.subtitleFilesDefaultsKey) ?? [:]
+        // Subtitle delay is per video now; an older app-wide delay is dropped.
+        subtitleSettings.delay = 0
+        rememberedTracks = loadRememberedTracks()
+        if defaults.object(forKey: Self.legacySubtitleFilesDefaultsKey) != nil {
+            persistTracks()
+            defaults.removeObject(forKey: Self.legacySubtitleFilesDefaultsKey)
+        }
 
         if let storedQueue = load(QueuePersistence.self, key: Self.queueDefaultsKey) {
             queue = storedQueue.items.filter(Self.isRestorableQueueItem)
@@ -247,7 +254,7 @@ final class PlayerModel {
             case .fileLoaded:
                 self.completion.fileLoaded()
                 self.isLoading = false
-                if self.restoreRememberedSubtitle() {
+                if self.restoreRememberedTracks() {
                     // Same settle delay as Open Subtitle before re-reading tracks.
                     Task { @MainActor [weak self] in
                         try? await Task.sleep(for: .milliseconds(150))
@@ -374,6 +381,9 @@ final class PlayerModel {
         let markers = rememberedMarkers[key]
         introEndMarker = markers?.introEnd
         outroStartMarker = markers?.outroStart
+        // mpv keeps sub-delay across files, so set this video's own delay.
+        subtitleSettings.delay = rememberedTracks[key]?.subtitleDelay ?? 0
+        engine.setSubtitleDelay(subtitleSettings.delay)
         audioTracks = []
         subtitleTracks = []
         loadCurrentItem()
@@ -518,6 +528,7 @@ final class PlayerModel {
 
     func selectAudioTrack(_ track: MPVEngine.MediaTrack) {
         engine.selectTrack(track)
+        updateRememberedTracks { $0.audioID = track.id }
         audioTracks = audioTracks.map { item in
             var item = item
             item.isSelected = item.id == track.id
@@ -527,13 +538,7 @@ final class PlayerModel {
 
     func selectSubtitleTrack(_ track: MPVEngine.MediaTrack?) {
         engine.selectTrack(track)
-        // Choosing an external file keeps it for this video; choosing an
-        // embedded track or Off means the user no longer wants it restored.
-        if let path = track?.externalFilename {
-            rememberSubtitle(URL(fileURLWithPath: path))
-        } else {
-            forgetSubtitle()
-        }
+        rememberSubtitleChoice(track)
         subtitleTracks = subtitleTracks.map { item in
             var item = item
             item.isSelected = item.id == track?.id
@@ -550,19 +555,26 @@ final class PlayerModel {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = ["srt", "ass", "ssa", "vtt", "sub"]
+        panel.allowedContentTypes = MediaSupport.subtitleExtensions.sorted()
             .compactMap { UTType(filenameExtension: $0) }
         panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else { return }
-            guard self.engine.addExternalSubtitle(url) else {
-                self.errorMessage = self.engine.lastError ?? "The subtitle file could not be opened."
-                return
-            }
-            self.rememberSubtitle(url)
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(150))
-                self?.refreshTracks()
-            }
+            guard response == .OK, let url = panel.url else { return }
+            self?.addSubtitleFile(url)
+        }
+    }
+
+    /// Adds a subtitle file to the playing video, selects it, and remembers it
+    /// for that video. Used by Open Subtitle and by dropping a file on the window.
+    func addSubtitleFile(_ url: URL) {
+        guard hasMedia else { return }
+        guard engine.addExternalSubtitle(url) else {
+            errorMessage = engine.lastError ?? "The subtitle file could not be opened."
+            return
+        }
+        updateRememberedTracks { $0.subtitle = .external(path: url.standardizedFileURL.path) }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            self?.refreshTracks()
         }
     }
 
@@ -695,10 +707,13 @@ final class PlayerModel {
         engine.setSubtitleOutlineSize(settings.outlineSize)
         engine.setSubtitleBold(settings.bold)
         engine.setSubtitleDelay(settings.delay)
+        updateRememberedTracks { $0.subtitleDelay = settings.delay == 0 ? nil : settings.delay }
         let (red, green, blue) = Self.rgbComponents(fromHex: settings.textColorHex)
         engine.setSubtitleTextColor(String(format: "%.3f/%.3f/%.3f/1.0", red, green, blue))
         engine.setSubtitleBackground(String(format: "0.0/0.0/0.0/%.3f", settings.backgroundOpacity))
-        if let data = try? JSONEncoder().encode(subtitleSettings) {
+        var appWide = settings
+        appWide.delay = 0  // Saved per video instead.
+        if let data = try? JSONEncoder().encode(appWide) {
             defaults.set(data, forKey: Self.subtitleSettingsKey)
         }
     }
