@@ -23,6 +23,8 @@ final class MPVEngine {
         let language: String?
         let codec: String?
         var isSelected: Bool
+        /// Path of the file an external (sub-add or auto-loaded) track came from.
+        var externalFilename: String? = nil
 
         var displayName: String {
             let fallback = kind == .audio ? "Audio \(id)" : "Subtitle \(id)"
@@ -536,7 +538,8 @@ final class MPVEngine {
                 title: stringProperty("\(prefix)/title"),
                 language: stringProperty("\(prefix)/lang"),
                 codec: stringProperty("\(prefix)/codec"),
-                isSelected: cinewave_mpv_get_flag(handle, "\(prefix)/selected", 0) != 0
+                isSelected: cinewave_mpv_get_flag(handle, "\(prefix)/selected", 0) != 0,
+                externalFilename: stringProperty("\(prefix)/external-filename")
             )
         }
     }

@@ -99,6 +99,7 @@ final class PlayerModel {
     @ObservationIgnored private var pendingResumePosition: Double?
     @ObservationIgnored var rememberedPositions: [String: RememberedPosition] = [:]
     @ObservationIgnored var rememberedMarkers: [String: PlaybackMarkers] = [:]
+    @ObservationIgnored var rememberedSubtitles: [String: RememberedSubtitle] = [:]
     /// Position at the last progress write; snapshots arriving between 1-second
     /// deltas are ignored so playback persistence costs ~one write per second.
     @ObservationIgnored var lastPersistedPosition: Double?
@@ -115,6 +116,8 @@ final class PlayerModel {
     static let maximumRememberedPositions = 500
     static let markersDefaultsKey = "playback.markers.v1"
     static let subtitleSettingsKey = "subtitles.settings.v1"
+    static let subtitleFilesDefaultsKey = "subtitles.files.v1"
+    static let maximumRememberedSubtitles = 500
     static let queueDefaultsKey = "player.queue.v1"
 
     var currentItem: MediaItem? {
@@ -167,6 +170,7 @@ final class PlayerModel {
         }
         rememberedMarkers = load([String: PlaybackMarkers].self, key: Self.markersDefaultsKey) ?? [:]
         subtitleSettings = load(SubtitleSettings.self, key: Self.subtitleSettingsKey) ?? SubtitleSettings()
+        rememberedSubtitles = load([String: RememberedSubtitle].self, key: Self.subtitleFilesDefaultsKey) ?? [:]
 
         if let storedQueue = load(QueuePersistence.self, key: Self.queueDefaultsKey) {
             queue = storedQueue.items.filter(Self.isRestorableQueueItem)
@@ -243,6 +247,13 @@ final class PlayerModel {
             case .fileLoaded:
                 self.completion.fileLoaded()
                 self.isLoading = false
+                if self.restoreRememberedSubtitle() {
+                    // Same settle delay as Open Subtitle before re-reading tracks.
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        self?.refreshTracks()
+                    }
+                }
                 self.refreshTracks()
                 // Match a normal window to the video's display aspect so playback
                 // does not start with app-added letterboxing. Fullscreen and zoomed
@@ -516,6 +527,13 @@ final class PlayerModel {
 
     func selectSubtitleTrack(_ track: MPVEngine.MediaTrack?) {
         engine.selectTrack(track)
+        // Choosing an external file keeps it for this video; choosing an
+        // embedded track or Off means the user no longer wants it restored.
+        if let path = track?.externalFilename {
+            rememberSubtitle(URL(fileURLWithPath: path))
+        } else {
+            forgetSubtitle()
+        }
         subtitleTracks = subtitleTracks.map { item in
             var item = item
             item.isSelected = item.id == track?.id
@@ -540,6 +558,7 @@ final class PlayerModel {
                 self.errorMessage = self.engine.lastError ?? "The subtitle file could not be opened."
                 return
             }
+            self.rememberSubtitle(url)
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(150))
                 self?.refreshTracks()

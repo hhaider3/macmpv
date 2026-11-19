@@ -66,6 +66,39 @@ struct PlaybackTests {
         #expect(reloaded.rememberedPositions["/tmp/\(limit + 9).mkv"] != nil)
     }
 
+    @Test @MainActor func externalSubtitleIsRememberedPerVideoUntilAnotherTrackIsChosen() throws {
+        let suite = "macmpv-tests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = PlayerModel(defaults: defaults)
+        let movie = MediaItem(url: URL(fileURLWithPath: "/tmp/movie.mkv"))
+        let other = MediaItem(url: URL(fileURLWithPath: "/tmp/other.mkv"))
+        player.queue = [movie, other]
+        let external = MPVEngine.MediaTrack(
+            id: "3", kind: .subtitle, title: nil, language: nil, codec: "subrip",
+            isSelected: false, externalFilename: "/tmp/subs/../subs/movie.en.srt"
+        )
+        let embedded = MPVEngine.MediaTrack(
+            id: "1", kind: .subtitle, title: "English", language: "eng", codec: "ass", isSelected: true
+        )
+
+        player.currentID = movie.id
+        player.selectSubtitleTrack(external)
+        player.currentID = other.id
+        player.selectSubtitleTrack(embedded)
+
+        // Survives an app restart, keyed to the video it was set on.
+        var reloaded = PlayerModel(defaults: defaults)
+        #expect(reloaded.rememberedSubtitles["/tmp/movie.mkv"]?.path == "/tmp/subs/movie.en.srt")
+        #expect(reloaded.rememberedSubtitles["/tmp/other.mkv"] == nil)
+
+        reloaded.queue = [movie]
+        reloaded.currentID = movie.id
+        reloaded.selectSubtitleTrack(nil)
+        reloaded = PlayerModel(defaults: defaults)
+        #expect(reloaded.rememberedSubtitles.isEmpty)
+    }
+
     @Test func completionIsConsumedOnceAndRearmedAfterSeek() {
         var completion = PlaybackCompletion()
         var results: [Bool] = []
