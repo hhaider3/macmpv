@@ -245,77 +245,6 @@ main {
 
 .button-ghost:hover { background: rgba(255, 255, 255, 0.09); }
 
-/* ---- Download build picker ---- */
-
-.download-menu {
-    position: relative;
-    display: inline-flex;
-}
-
-.download-menu .chevron {
-    transition: transform 0.2s ease;
-}
-
-.download-menu[open] .chevron {
-    transform: rotate(180deg);
-}
-
-.download-options {
-    position: absolute;
-    top: calc(100% + 12px);
-    left: 50%;
-    transform: translateX(-50%) translateY(6px);
-    min-width: 300px;
-    display: grid;
-    gap: 6px;
-    padding: 8px;
-    border: 1px solid var(--border-strong);
-    border-radius: 16px;
-    background: rgba(10, 13, 22, 0.88);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    box-shadow: var(--shadow);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
-    z-index: 20;
-}
-
-.download-menu[open] .download-options {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateX(-50%) translateY(0);
-}
-
-.download-options a {
-    display: grid;
-    gap: 3px;
-    padding: 10px 14px;
-    border-radius: 11px;
-    color: var(--text);
-    text-decoration: none;
-    transition: background 0.15s ease;
-}
-
-.download-options a:hover,
-.download-options a:focus-visible {
-    background: rgba(255, 255, 255, 0.08);
-    text-decoration: none;
-    outline: none;
-}
-
-.option-name {
-    font-size: 16px;
-    font-weight: 650;
-}
-
-.option-meta {
-    font-size: 12px;
-    color: var(--text-dim);
-}
-
 .button-sub {
     display: block;
     font-size: 12px;
@@ -615,14 +544,6 @@ main {
     margin-bottom: 3px;
 }
 
-.variant-note {
-    margin: 14px auto 0;
-    max-width: 640px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 16px;
-}
-
 /* ---- FAQ ---- */
 
 .faq-list {
@@ -742,12 +663,6 @@ main {
 .button-primary { background: #f1f3f8; box-shadow: 0 4px 16px #0004; }
 .button-primary:hover { color: #05070c; background: white; box-shadow: 0 6px 24px #0006; }
 .button-ghost:hover { color: white; }
-.download-menu { display: block; }
-.download-menu summary { list-style: none; }
-.download-menu summary::-webkit-details-marker { display: none; }
-.download-options { left: 0; transform: none; width: 320px; min-width: 0; max-width: calc(100vw - 40px); background: #141923; }
-.download-menu[open] .download-options { transform: none; }
-.option-meta { font-size: 13px; }
 .section { margin-top: 50px; padding-top: 64px; border-top: 1px solid var(--border); }
 .showcase { gap: 72px; padding-bottom: 14px; }
 .showcase-copy h2 { font-size: clamp(32px, 3.5vw, 46px); font-weight: 600; letter-spacing: -.045em; line-height: 1.13; }
@@ -795,21 +710,8 @@ main {
     .hero h1 { font-size: clamp(48px, 12vw, 70px); }
     .hero-sub { font-size: 17px; }
     .hero-shot figcaption { flex-direction: column; gap: 3px; }
-    /* Expand in the page flow on phones so both choices fit without covering
-       the next action or extending past the viewport. Native details still
-       handles opening and closing when JavaScript is unavailable. */
     .hero-actions { flex-direction: column; align-items: center; gap: 10px; }
-    .download-menu { width: 100%; max-width: 320px; }
-    .download-menu summary { display: flex; width: 100%; justify-content: center; }
-    .download-options {
-        position: static;
-        width: 100%;
-        max-width: none;
-        margin-top: 12px;
-        text-align: left;
-        transition: none;
-    }
-    .download-options a { min-width: 0; overflow-wrap: anywhere; }
+    .hero-actions .button { width: 100%; max-width: 320px; justify-content: center; }
     .hero-actions .button { padding-inline: 15px; }
     .section { margin-top: 48px; padding-top: 40px; }
     .showcase, .showcase-reverse { grid-template-columns: 1fr; }

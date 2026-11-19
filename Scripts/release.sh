@@ -1,7 +1,11 @@
 #!/bin/zsh
-# One-command release: builds both dmg variants, patches site/index.html
-# (download URLs, sizes, checksum), and publishes both GitHub Releases
-# (vX.Y standard, vX.Yt torrents).
+# One-command release: builds the dmg (torrent playback included), patches
+# site/index.html (download URLs, size, checksum) and both update feeds, and
+# publishes the GitHub Release vX.Y with its notes from CHANGELOG.md.
+#
+# Since 2.0 there is one build. appcast.xml (read by pre-2.0 Standard installs)
+# and appcast-torrents.xml (read by every install since) offer the same dmg,
+# so Standard installs move onto it.
 #
 # Usage: Scripts/release.sh [VERSION]
 #   VERSION  optional; defaults to Info.plist. When given, the plist is bumped
@@ -26,11 +30,20 @@ cd "$PROJECT_DIR"
 command -v gh >/dev/null 2>&1 || die "gh CLI required (brew install gh)"
 gh auth status >/dev/null 2>&1 || die "gh not authenticated (run: gh auth login)"
 
-for tag in "v$VERSION" "v${VERSION}t"; do
-  if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
-    die "tag $tag already exists on origin"
-  fi
-done
+if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+  die "tag v$VERSION already exists on origin"
+fi
+
+NOTES_FILE=$(mktemp "${TMPDIR:-/tmp}/macmpv-notes.XXXXXX")
+trap 'rm -f "$NOTES_FILE"' EXIT
+python3 - "$PROJECT_DIR/CHANGELOG.md" "$VERSION" > "$NOTES_FILE" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+match = re.search(rf'^## {re.escape(sys.argv[2])} .*?\n(.*?)(?=^## |\Z)', text, re.S | re.M)
+if not match or not match.group(1).strip():
+    sys.exit(f'error: CHANGELOG.md has no section for {sys.argv[2]}')
+print(match.group(1).strip())
+PY
 
 if [[ -z "${FORCE:-}" ]]; then
   [[ -z "$(git status --porcelain)" ]] || {
@@ -61,52 +74,43 @@ fi
 RELEASE_COMMIT=$(git rev-parse HEAD)
 git push origin HEAD
 
-echo "==> Building both dmg variants"
-zsh "$SCRIPT_DIR/package-dmg.sh"
+echo "==> Building the dmg"
 zsh "$SCRIPT_DIR/package-dmg.sh" torrents
 
 ARCH=$(uname -m)
-STD_DMG="dist/macmpv-${VERSION}-${ARCH}.dmg"
-TOR_DMG="dist/macmpv-${VERSION}-${ARCH}-torrents.dmg"
-[[ -f "$STD_DMG" ]] || die "expected $STD_DMG missing"
-[[ -f "$TOR_DMG" ]] || die "expected $TOR_DMG missing"
+# package-dmg names the torrent build *-torrents.dmg; it is the only download now.
+DMG="dist/macmpv-${VERSION}-${ARCH}.dmg"
+mv -f "dist/macmpv-${VERSION}-${ARCH}-torrents.dmg" "$DMG"
+SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+SUMS="dist/SHA256SUMS-${VERSION}.txt"
+(cd dist && shasum -a 256 "${DMG:t}") > "$SUMS"
+echo "==> $(basename $DMG)  $SHA"
 
-STD_SHA=$(shasum -a 256 "$STD_DMG" | awk '{print $1}')
-TOR_SHA=$(shasum -a 256 "$TOR_DMG" | awk '{print $1}')
-echo "==> standard: $(basename $STD_DMG)  $STD_SHA"
-echo "==> torrents: $(basename $TOR_DMG)  $TOR_SHA"
-
-echo "==> Signing updates and writing the update feeds"
+echo "==> Signing the update and writing both update feeds"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 [[ -x "$SIGN_UPDATE" ]] || die "Sparkle's sign_update is missing (swift package resolve)"
 BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "dist/macmpv.app/Contents/Info.plist")
 REPO_URL="https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')"
-STD_SIGNED=$("$SIGN_UPDATE" --account macmpv "$STD_DMG")
-TOR_SIGNED=$("$SIGN_UPDATE" --account macmpv "$TOR_DMG")
-python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/appcast.xml" "macmpv" \
-  "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v$VERSION/${STD_DMG:t}" \
-  "$REPO_URL/releases/tag/v$VERSION" "$STD_SIGNED"
-python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/appcast-torrents.xml" "macmpv + Torrents" \
-  "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v${VERSION}t/${TOR_DMG:t}" \
-  "$REPO_URL/releases/tag/v${VERSION}t" "$TOR_SIGNED"
+SIGNED=$("$SIGN_UPDATE" --account macmpv "$DMG")
+for feed in appcast.xml appcast-torrents.xml; do
+  python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/$feed" "macmpv" \
+    "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v$VERSION/${DMG:t}" \
+    "$REPO_URL/releases/tag/v$VERSION" "$SIGNED"
+done
 
 echo "==> Patching site/index.html"
-python3 "$SCRIPT_DIR/update-downloads.py" "$PROJECT_DIR/site/index.html" "$VERSION" "$STD_SHA" "$STD_DMG" "$TOR_DMG"
+python3 "$SCRIPT_DIR/update-downloads.py" "$PROJECT_DIR/site/index.html" "$VERSION" "$SHA" "$DMG"
 python3 "$SCRIPT_DIR/validate-site.py"
 
-echo "==> Publishing GitHub releases (standard first, then torrents)"
-gh release create "v$VERSION" "$STD_DMG" \
+echo "==> Publishing the GitHub release"
+gh release create "v$VERSION" "$DMG" "$SUMS" \
   --title "macmpv $VERSION" \
   --target "$RELEASE_COMMIT" \
-  --generate-notes
-gh release create "v${VERSION}t" "$TOR_DMG" \
-  --title "macmpv ${VERSION}t — Torrents build" \
-  --target "$RELEASE_COMMIT" \
-  --generate-notes
+  --notes-file "$NOTES_FILE"
 
 echo ""
-echo "Release published: https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')/releases/tag/v${VERSION}t"
+echo "Release published: https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')/releases/tag/v${VERSION}"
 echo "Remaining manual steps:"
-echo "  1. Review both release notes on GitHub (--generate-notes drafts from commits)"
+echo "  1. Review the release notes on GitHub (taken from CHANGELOG.md)"
 echo "  2. git add site/ && git commit -m \"site: point downloads at v$VERSION releases\" && git push"
 echo "     — the push deploys the updated site via Cloudflare Pages"

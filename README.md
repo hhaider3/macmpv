@@ -143,8 +143,8 @@ are relocated into the bundle so Homebrew upgrades cannot override its libraries
 WebTorrent CLI stays
 optional and external — torrent playback still requires it on the target Mac.
 
-A "+ Torrents" variant also bundles a node runtime and WebTorrent CLI. It is
-larger than the standard build, but torrent playback works with nothing installed:
+The torrent build also bundles a node runtime and WebTorrent CLI, so torrent
+playback works with nothing installed. Since 2.0 it is the only build released:
 
 ```sh
 make dmg-torrents   # dist/macmpv-<version>-<arch>-torrents.dmg
@@ -184,27 +184,29 @@ It is ready for Cloudflare Pages:
 - Build command: *(empty)*
 - Output directory: `site`
 
-Download buttons point at GitHub Releases, each pinned to its exact tag
-(`releases/download/vX.Y/...` and `releases/download/vX.Yt/...` for the
-"+ Torrents" build). Both DMGs exceed Cloudflare Pages' 25 MB static asset
-limit, so binaries must be hosted on GitHub Releases (or R2), not in the Pages
-project.
+Both download buttons point at the one DMG on GitHub Releases, pinned to its
+exact tag (`releases/download/vX.Y/macmpv-X.Y-arm64.dmg`). The DMG exceeds
+Cloudflare Pages' 25 MB static asset limit, so binaries must be hosted on
+GitHub Releases (or R2), not in the Pages project.
 
-Releases are automated: `make release` (or `make release VERSION=1.3` to bump
+Releases are automated: `make release` (or `make release VERSION=2.1` to bump
 Info.plist first — the bump is committed so the tag points at the version
-built) builds both dmgs, patches the site's download URLs, sizes, SHA-256, and
-the version and release-notes link under the download button,
-and publishes both GitHub releases (`vX.Y` and `vX.Yt`) via the `gh` CLI — see
-`Scripts/release.sh`. It refuses a dirty working tree, pushes the exact source commit, and explicitly targets that commit for both tags
-and leaves the site changes for you to commit and push, which deploys them via
-Cloudflare Pages.
+built) builds the torrent DMG and publishes it as `macmpv-X.Y-arm64.dmg`, signs
+it into both update feeds, patches the site's download URLs, size, SHA-256 and
+version, and publishes the GitHub release `vX.Y` with a `SHA256SUMS-X.Y.txt`
+and notes taken from that version's `CHANGELOG.md` section — see
+`Scripts/release.sh`. It refuses a dirty working tree, pushes the exact source
+commit, targets that commit for the tag, and leaves the site changes for you to
+commit and push, which deploys them via Cloudflare Pages. Releases up to 1.9
+also had a Standard build (`vX.Y`) next to the torrent build (`vX.Yt`).
 
 ## Updates
 
 Packaged builds update themselves with [Sparkle](https://sparkle-project.org/).
-At launch and once a day, the app reads its variant's feed
-(`https://macmpv.pages.dev/appcast.xml`, or `appcast-torrents.xml` for the
-"+ Torrents" build), downloads a newer DMG from GitHub Releases in the
+At launch and once a day, the app reads its feed
+(`https://macmpv.pages.dev/appcast-torrents.xml`; Standard builds up to 1.9
+read `appcast.xml`, which offers the same DMG so they move onto it),
+downloads a newer DMG from GitHub Releases in the
 background, and installs it when the app quits. **Check for Updates…** and
 **Install Updates Automatically** live in the macmpv menu. Development builds
 (`swift run`, `make app`) have no feed and never update themselves;

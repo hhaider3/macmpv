@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0 — 2026-11-19
+
+- One download: macmpv now ships as a single build with torrent playback built in, so magnet links and .torrent files work with nothing else to install. The separate Standard build is retired, and Standard installs update to 2.0 automatically.
+- Subtitle files stay with their video. A subtitle you add with **Open Subtitle…** (⇧⌘O), or now by dropping the file on the video, comes back every time that video opens, even after quitting macmpv.
+- Each video also remembers its audio track, its subtitle choice (including Off) and its subtitle delay, so fixing one out-of-sync video no longer shifts every other one. A delay set in an earlier version is cleared once.
+- Fixed "Reading media info…" occasionally spinning until relaunch when a file took too long to inspect.
+- macmpv now appears under Open With for .m3u playlists.
+- macmpv always uses the libraries bundled inside the app, even on Macs with Homebrew installed.
+
+Requires macOS 26 or newer on Apple Silicon. Includes Node and WebTorrent for torrent playback. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
+
 ## 1.9 — 2026-10-21
 
 - Torrents stop sharing once every queued video is downloaded. Playback continues from the saved files, and macmpv leaves the swarm instead of uploading until you close the torrent.
