@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>macmpv + Torrents</title>
+    <title>macmpv</title>
     <link>https://macmpv.pages.dev/</link>
     <item>
-      <title>Version 1.9</title>
-      <pubDate>Thu, 22 Oct 2026 06:28:51 +0000</pubDate>
-      <sparkle:version>202610212325</sparkle:version>
-      <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/hhaider3/macmpv/releases/tag/v1.9t</sparkle:releaseNotesLink>
-      <enclosure url="https://github.com/hhaider3/macmpv/releases/download/v1.9t/macmpv-1.9-arm64-torrents.dmg" length="115914957" type="application/octet-stream" sparkle:edSignature="u7IS7cirtCo5wY9yn6aE1xTq/vhpry51ILDkqLayUHlAA6K+stdkTNXlSs91t+bWtPTtwzprW5HF1VPCPW/nCA=="/>
+      <title>Version 2.0</title>
+      <pubDate>Thu, 19 Nov 2026 16:06:27 +0000</pubDate>
+      <sparkle:version>202611190844</sparkle:version>
+      <sparkle:shortVersionString>2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/hhaider3/macmpv/releases/tag/v2.0</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/hhaider3/macmpv/releases/download/v2.0/macmpv-2.0-arm64.dmg" length="120115169" type="application/octet-stream" sparkle:edSignature="PFIIJFuByTVUMf3hFFXjpXNcPCgDQ61uJgJbsw3bfqK2aKeQP/Xj5d462MuFEIjOpnUQlxJ0mcIa0OkIzFGbBg=="/>
     </item>
   </channel>
 </rss>
