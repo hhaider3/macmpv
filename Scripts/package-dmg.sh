@@ -20,6 +20,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 SIGN_IDENTITY=${MACMPV_SIGN_IDENTITY:--}
+source "$SCRIPT_DIR/bundle-rpaths.sh"
 
 echo "==> Building mpv with the CoreAudio hotplug fix"
 zsh "$SCRIPT_DIR/build-libmpv.sh"
@@ -112,7 +113,8 @@ if [[ "$MODE" == "torrents" ]]; then
 
   closure[$LIBNODE]=1
   by_name[${LIBNODE:t}]=$(realpath "$LIBNODE")
-  to_visit+=("$(realpath "$LIBNODE")")
+  # The launcher can also link dependencies directly, independently of libnode.
+  to_visit+=("$NODE_BIN" "$(realpath "$LIBNODE")")
   while (( ${#to_visit[@]} > 0 )); do
     current=${to_visit[1]}
     to_visit=(${to_visit:1})
@@ -155,22 +157,16 @@ rewrite_refs() {
   fi
 }
 
-add_rpath() {
-  local target=$1 rpath=$2
-  if ! otool -l "$target" | grep -q "path $rpath"; then
-    install_name_tool -add_rpath "$rpath" "$target"
-  fi
-}
-
 for f in "$FRAMEWORKS_DIR"/*.dylib; do
   install_name_tool -id "@rpath/${f:t}" "$f"
   rewrite_refs "$f"
+  relocate_rpaths "$f" "@loader_path"
 done
 
 rewrite_refs "$MACOS_DIR/macmpv"
 rewrite_refs "$MACOS_DIR/ffprobe"
-add_rpath "$MACOS_DIR/macmpv" "@executable_path/../Frameworks"
-add_rpath "$MACOS_DIR/ffprobe" "@executable_path/../Frameworks"
+relocate_rpaths "$MACOS_DIR/macmpv" "@executable_path/../Frameworks"
+relocate_rpaths "$MACOS_DIR/ffprobe" "@executable_path/../Frameworks"
 
 HELPERS_DIR="$CONTENTS_DIR/Helpers"
 WEBTORRENT_RESOURCES_DIR=""
@@ -183,7 +179,8 @@ if [[ "$MODE" == "torrents" ]]; then
   cp "$NODE_BIN" "$HELPERS_DIR/webtorrent-node"
   chmod 755 "$HELPERS_DIR/webtorrent-node"
   # The launcher loads libnode via @rpath, same as the app's own dylibs.
-  add_rpath "$HELPERS_DIR/webtorrent-node" "@executable_path/../Frameworks"
+  rewrite_refs "$HELPERS_DIR/webtorrent-node"
+  relocate_rpaths "$HELPERS_DIR/webtorrent-node" "@executable_path/../Frameworks"
 
   WEBTORRENT_RESOURCES_DIR="$CONTENTS_DIR/Resources/webtorrent-cli"
   rm -rf "$WEBTORRENT_RESOURCES_DIR"
@@ -247,11 +244,18 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   }
 fi
 
-# ---- Verify no absolute Homebrew references remain ----
-for f in "$MACOS_DIR/macmpv" "$MACOS_DIR/ffprobe" "$FRAMEWORKS_DIR"/*.dylib; do
+# ---- Verify dependency references and search paths stay inside the bundle ----
+bundle_binaries=("$MACOS_DIR/macmpv" "$MACOS_DIR/ffprobe" "$FRAMEWORKS_DIR"/*.dylib)
+[[ "$MODE" != "torrents" ]] || bundle_binaries+=("$HELPERS_DIR/webtorrent-node")
+for f in "${bundle_binaries[@]}"; do
   if refs_of "$f" | grep -Eq '^/opt/homebrew|^/usr/local|^@loader_path'; then
     echo "error: $f still references non-bundled libraries" >&2
     exit 1
+  fi
+  if [[ "$f" == "$FRAMEWORKS_DIR/"* ]]; then
+    verify_bundle_rpaths "$f" "@loader_path"
+  else
+    verify_bundle_rpaths "$f" "@executable_path/../Frameworks"
   fi
 done
 # Smoke tests: exercise the bundled dylibs through dyld, same as playback will.

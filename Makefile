@@ -5,7 +5,7 @@ BUILD_LOG := .build/last-build.log
 # real compile failure: fail once, with the output shown exactly once.
 SANDBOX_ERROR := sandbox_apply: Operation not permitted
 
-.PHONY: build test test-torrents test-coreaudio run app dmg dmg-torrents release clean
+.PHONY: build test test-bundle test-torrents test-coreaudio run app dmg dmg-torrents release clean
 
 build:
 	@mkdir -p .build
@@ -21,6 +21,10 @@ build:
 test:
 	swift test
 	python3 Scripts/validate-site.py
+	zsh Scripts/test-bundle-rpaths.sh
+
+test-bundle:
+	zsh Scripts/test-bundle-rpaths.sh
 
 TORRENT_NODE ?= dist/macmpv.app/Contents/Helpers/webtorrent-node
 

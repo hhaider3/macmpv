@@ -138,7 +138,9 @@ make dmg
 and `ffprobe` inside the app (`Contents/Frameworks` + `Contents/MacOS/ffprobe`),
 rewrites all load commands to `@rpath`, re-signs, and packs
 `dist/macmpv-<version>-<arch>.dmg`. The bundled app runs without Homebrew
-installed, on the same architecture and macOS 26 or newer. WebTorrent CLI stays
+installed, on the same architecture and macOS 26 or newer. Library search paths
+are relocated into the bundle so Homebrew upgrades cannot override its libraries.
+WebTorrent CLI stays
 optional and external — torrent playback still requires it on the target Mac.
 
 A "+ Torrents" variant also bundles a node runtime and WebTorrent CLI. It is
@@ -312,6 +314,11 @@ sources, stalled reads, and timeouts without contacting external servers.
 The website preserves its static Cloudflare Pages deployment: pushing `main`
 publishes `site/`. Its native download picker and FAQ remain usable without
 JavaScript; the layout adapts to small screens and respects reduced motion.
+
+Run `make test-bundle` for the packaging search-path regression (also included in
+`make test`). It reproduces a build-machine library overriding a bundled copy,
+then checks that relocation uses the bundled copy even after the external library
+is removed.
 
 Run `make test-torrents` with the bundled torrent app present to test real downloads against a local web seed, priority switching, and offline reuse after restart. These tests do not contact public peers. Set `MACMPV_WEBTORRENT_MODULE` to a WebTorrent `index.js` and `TORRENT_NODE` to a compatible Node executable to use external dependencies.
 
