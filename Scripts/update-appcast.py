@@ -3,6 +3,7 @@
 
 Usage: update-appcast.py <output.xml> <title> <short-version> <build-number>
                          <download-url> <notes-url> <sign_update output>
+                         <minimum-macos>
 
 The last argument is what Sparkle's sign_update prints for the dmg:
     sparkle:edSignature="..." length="..."
@@ -13,7 +14,9 @@ import sys
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape, quoteattr
 
-output, title, short_version, build, url, notes, signed = sys.argv[1:8]
+output, title, short_version, build, url, notes, signed, minimum = sys.argv[1:9]
+if not re.fullmatch(r'\d+(\.\d+){0,2}', minimum):
+    sys.exit(f'error: minimum macOS must look like 27.0, got {minimum!r}')
 
 match = re.fullmatch(r'\s*sparkle:edSignature="([A-Za-z0-9+/=]+)"\s+length="(\d+)"\s*', signed)
 if not match:
@@ -33,7 +36,7 @@ feed = f'''<?xml version="1.0" encoding="utf-8"?>
       <pubDate>{published}</pubDate>
       <sparkle:version>{build}</sparkle:version>
       <sparkle:shortVersionString>{escape(short_version)}</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:minimumSystemVersion>{escape(minimum)}</sparkle:minimumSystemVersion>
       <sparkle:releaseNotesLink>{escape(notes)}</sparkle:releaseNotesLink>
       <enclosure url={quoteattr(url)} length="{length}" type="application/octet-stream" sparkle:edSignature="{signature}"/>
     </item>

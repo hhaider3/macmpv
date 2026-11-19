@@ -8,8 +8,9 @@
 - Fixed "Reading media info…" occasionally spinning until relaunch when a file took too long to inspect.
 - macmpv now appears under Open With for .m3u playlists.
 - macmpv always uses the libraries bundled inside the app, even on Macs with Homebrew installed.
+- macmpv 2.0 requires macOS 27. On macOS 26, keep using 1.9; it is not offered this update.
 
-Requires macOS 26 or newer on Apple Silicon. Includes Node and WebTorrent for torrent playback. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
+Requires macOS 27 or newer on Apple Silicon. Includes Node and WebTorrent for torrent playback. Public builds remain ad-hoc signed unless a Developer ID identity is configured.
 
 ## 1.9 — 2026-10-21
 

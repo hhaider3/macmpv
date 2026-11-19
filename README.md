@@ -25,7 +25,7 @@ playback and uses ffprobe (from FFmpeg) to read media metadata.
 
 ## Requirements
 
-- macOS 26
+- macOS 27 (packaged releases since 2.0; 1.9 was the last for macOS 26)
 - Xcode 26 or newer (including Command Line Tools)
 - Homebrew `mpv` and `ffmpeg` with `pkg-config`
 - Node.js/npm and WebTorrent CLI for torrent playback only (`npm install -g webtorrent-cli`)
@@ -138,7 +138,8 @@ make dmg
 and `ffprobe` inside the app (`Contents/Frameworks` + `Contents/MacOS/ffprobe`),
 rewrites all load commands to `@rpath`, re-signs, and packs
 `dist/macmpv-<version>-<arch>.dmg`. The bundled app runs without Homebrew
-installed, on the same architecture and macOS 26 or newer. Library search paths
+installed, on the same architecture and the macOS in `LSMinimumSystemVersion`
+(27 or newer since 2.0). Library search paths
 are relocated into the bundle so Homebrew upgrades cannot override its libraries.
 WebTorrent CLI stays
 optional and external — torrent playback still requires it on the target Mac.

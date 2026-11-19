@@ -244,7 +244,9 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   }
 fi
 
-# ---- Verify dependency references and search paths stay inside the bundle ----
+# ---- Verify dependency references, search paths and minimum macOS ----
+autoload -Uz is-at-least
+MINIMUM_MACOS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$CONTENTS_DIR/Info.plist")
 bundle_binaries=("$MACOS_DIR/macmpv" "$MACOS_DIR/ffprobe" "$FRAMEWORKS_DIR"/*.dylib)
 [[ "$MODE" != "torrents" ]] || bundle_binaries+=("$HELPERS_DIR/webtorrent-node")
 for f in "${bundle_binaries[@]}"; do
@@ -256,6 +258,13 @@ for f in "${bundle_binaries[@]}"; do
     verify_bundle_rpaths "$f" "@loader_path"
   else
     verify_bundle_rpaths "$f" "@executable_path/../Frameworks"
+  fi
+  # Homebrew builds bottles for the build Mac's macOS. A library built for a
+  # newer macOS than the app declares can stop the app opening on older Macs.
+  built_for=$(otool -l "$f" | awk '/LC_BUILD_VERSION/ {found = 1} found && /minos/ {print $2; exit}')
+  if [[ -n "$built_for" ]] && ! is-at-least "$built_for" "$MINIMUM_MACOS"; then
+    echo "error: ${f:t} needs macOS $built_for, but the app declares $MINIMUM_MACOS (LSMinimumSystemVersion)" >&2
+    exit 1
   fi
 done
 # Smoke tests: exercise the bundled dylibs through dyld, same as playback will.

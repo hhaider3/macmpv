@@ -90,12 +90,14 @@ echo "==> Signing the update and writing both update feeds"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 [[ -x "$SIGN_UPDATE" ]] || die "Sparkle's sign_update is missing (swift package resolve)"
 BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "dist/macmpv.app/Contents/Info.plist")
+# Sparkle offers the update only to Macs that can run it.
+MINIMUM_MACOS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "dist/macmpv.app/Contents/Info.plist")
 REPO_URL="https://github.com/$(git remote get-url origin | sed -E 's#.*github.com[:/]##;s#\.git$##')"
 SIGNED=$("$SIGN_UPDATE" --account macmpv "$DMG")
 for feed in appcast.xml appcast-torrents.xml; do
   python3 "$SCRIPT_DIR/update-appcast.py" "$PROJECT_DIR/site/$feed" "macmpv" \
     "$VERSION" "$BUILD_NUMBER" "$REPO_URL/releases/download/v$VERSION/${DMG:t}" \
-    "$REPO_URL/releases/tag/v$VERSION" "$SIGNED"
+    "$REPO_URL/releases/tag/v$VERSION" "$SIGNED" "$MINIMUM_MACOS"
 done
 
 echo "==> Patching site/index.html"
